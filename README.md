@@ -1,11 +1,11 @@
-# D‑C2
+# D‑C2 🛰️
 
 Discord‑based command‑and‑control (C2) client for educational and defensive research purposes.
 
 > This project is provided **only** for lawful use, such as learning, red‑teaming in environments you own, or testing your own defenses.  
 > **Do not** run it on systems or networks you do not own or explicitly control.
 
-## Overview
+## Overview 🔍
 
 The client connects to a Discord bot and opens a dedicated text channel per device inside your Discord server.  
 Channels are grouped by OS:
@@ -29,7 +29,7 @@ hostname | username | 192.168.1.10
 
 From that channel you control the client using emoji‑based commands.
 
-## Features / Actions
+## Features / Actions ⚙️
 
 From the per‑device channel, the client supports:
 
@@ -43,7 +43,20 @@ From the per‑device channel, the client supports:
 
 All command output is sent back to the channel. Long output is written to a temp file and uploaded instead of being pasted directly.
 
-## Requirements
+## Project Structure 📁
+
+```text
+discord-c2-server/
+├── client.go       # Entry point, session setup, per-device channel wiring
+├── env.go          # Environment loading and global configuration (token, guild ID)
+├── categories.go   # Discord category and device channel helpers
+├── handler.go      # Discord message handler and emoji command implementation
+├── go.mod
+├── go.sum
+└── README.md
+```
+
+## Requirements 📦
 
 - Go 1.19 or newer
 - A Discord account
@@ -54,7 +67,7 @@ All command output is sent back to the channel. Long output is written to a temp
   - Read and send messages
   - Upload files
 
-## Configuration
+## Configuration 🔑
 
 Configuration is done via a `.env` file in the project root.
 
@@ -70,7 +83,7 @@ DISCORD_GUILD_ID=YOUR_GUILD_ID_HERE
 
 > Do **not** commit `.env` to public repositories. Keep your token private and rotate it if it ever leaks.
 
-## Building
+## Building 🏗️
 
 From the project root:
 
@@ -92,7 +105,7 @@ Cross‑compile examples:
   GOOS=windows GOARCH=amd64 go build -o client-windows.exe client.go
   ```
 
-## Running the client
+## Running the client 🚀
 
 1. Ensure `.env` is present with a valid bot token and guild ID.
 2. Invite the bot to your Discord server with the required permissions.
@@ -120,7 +133,7 @@ Cross‑compile examples:
 
 5. Use the emoji commands in that channel to interact with the client.
 
-## Legal / Ethical Use
+## Legal / Ethical Use ⚖️
 
 - Only run this client on systems and networks you own or are explicitly authorized to test.
 - Do not use it for unauthorized access, surveillance, or any activity that violates laws, terms of service, or organizational policies.

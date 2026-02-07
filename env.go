@@ -6,9 +6,13 @@ import (
 	"strings"
 )
 
+// myChannelId stores the active control channel ID for this client instance.
 var myChannelId string
+
+// guildID stores the target Discord server (guild) ID loaded from configuration.
 var guildID string
 
+// loadEnvFile reads simple KEY=VALUE lines from the given file and sets them as environment variables.
 func loadEnvFile(path string) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -33,4 +37,3 @@ func loadEnvFile(path string) {
 		os.Setenv(key, value)
 	}
 }
-
