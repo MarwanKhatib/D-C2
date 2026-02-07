@@ -1,0 +1,7 @@
+.env
+*.exe
+discord-c2
+discord-c2-client
+client-linux
+client-windows.exe
+
