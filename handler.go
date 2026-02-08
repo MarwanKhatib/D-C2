@@ -105,6 +105,8 @@ func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			"Buttons for `whoami`, `id`, `hostname` and IP info run suitable commands on this OS:\n" +
 			"- Windows: whoami, hostname, ipconfig\n" +
 			"- Linux/macOS: whoami, id, hostname, ip addr\n\n" +
+			"**Files**\n" +
+			"Use `/download` and `/upload` or the 👇/☝️ emoji commands for file transfer.\n\n" +
 			"**More controls**\n" +
 			"Advanced commands are available via slash commands (see `/help`).\n\n" +
 			"Send `help` or `/help` anytime to show this help again."
