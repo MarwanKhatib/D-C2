@@ -30,11 +30,13 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				"/cwd                     – show current working directory\n" +
 				"/ls `[path]`              – list directory (current or given path)\n" +
 				"/download `<src>` `[dst]` – download file (src path, optional label)\n" +
-				"/upload `<file>` `<dst>`  – upload attached file to dst path\n\n" +
+				"/upload `<file>` `<dst>`  – upload attached file to dst path\n" +
+				"/restart                 – restart this client process\n\n" +
 				"**Emoji commands**\n" +
 				"📸                        – capture screenshots of all displays\n" +
 				"👇 `<path>`                – download file from this machine (size < 8 MB)\n" +
 				"☝️ `<path>` *attach         – upload attached file to this path\n" +
+				"🔁                        – restart this client\n" +
 				"💀                        – terminate this client\n\n" +
 				"**Buttons**\n" +
 				"whoami                    – show current user\n" +
@@ -311,6 +313,18 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			})
+		case "restart":
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "🔁 Restarting client...",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			err := restartClient()
+			if err != nil {
+				s.ChannelMessageSend(i.ChannelID, "Restart failed: "+err.Error())
+			}
 		default:
 		}
 	case discordgo.InteractionMessageComponent:

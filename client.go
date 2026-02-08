@@ -129,6 +129,10 @@ func main() {
 				},
 			},
 		},
+		{
+			Name:        "restart",
+			Description: "Restart this client process",
+		},
 	}
 
 	existingCommands, err := dg.ApplicationCommands(dg.State.User.ID, guildID)
