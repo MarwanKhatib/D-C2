@@ -86,6 +86,70 @@ func main() {
 			},
 		},
 		{
+			Name:        "record",
+			Description: "Record video with automatic segmented files for Discord upload",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "source",
+					Description: "Recording source: camera or screen",
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "camera",
+							Value: "camera",
+						},
+						{
+							Name:  "screen",
+							Value: "screen",
+						},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "max_size_mb",
+					Description: "Maximum size per file in MB (1-8)",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "duration_minutes",
+					Description: "Total recording duration in minutes",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "max_parts",
+					Description: "Maximum number of segments to record (1-30)",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "quality",
+					Description: "Video quality (low, medium, high)",
+					Required:    false,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "low",
+							Value: "low",
+						},
+						{
+							Name:  "medium",
+							Value: "medium",
+						},
+						{
+							Name:  "high",
+							Value: "high",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name:        "recordstop",
+			Description: "Stop the current video recording for this device",
+		},
+		{
 			Name:        "log",
 			Description: "Stream or stop Go logs into this device channel",
 			Options: []*discordgo.ApplicationCommandOption{
