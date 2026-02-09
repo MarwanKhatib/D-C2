@@ -1,11 +1,16 @@
 package main
 
+// This file contains helpers for creating and reusing guild categories and
+// per-device text channels.
+
 import (
 	"log"
 
 	"github.com/bwmarrin/discordgo"
 )
 
+// getOrCreateCategory ensures a guild category with the given name exists and
+// returns its ID, creating it if necessary.
 func getOrCreateCategory(s *discordgo.Session, name string) (string, error) {
 	channels, err := s.GuildChannels(guildID)
 	if err != nil {
@@ -30,6 +35,8 @@ func getOrCreateCategory(s *discordgo.Session, name string) (string, error) {
 	return cat.ID, nil
 }
 
+// getOrCreateDeviceChannel ensures a text channel for this device exists under
+// the given category and returns its ID.
 func getOrCreateDeviceChannel(s *discordgo.Session, categoryID, channelName string) (string, error) {
 	channels, err := s.GuildChannels(guildID)
 	if err != nil {

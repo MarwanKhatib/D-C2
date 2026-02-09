@@ -1,5 +1,8 @@
 package main
 
+// This file loads configuration from an embedded or on-disk .env file and
+// exposes process-wide identifiers used by the Discord client.
+
 import (
 	"bufio"
 	_ "embed"
@@ -7,13 +10,19 @@ import (
 	"strings"
 )
 
+// myChannelId stores the Discord text channel ID associated with this device.
 var myChannelId string
 
+// guildID holds the Discord guild in which device channels and commands live.
 var guildID string
 
+// embeddedEnv optionally contains environment configuration baked into the
+// binary at build time via go:embed.
 //go:embed .env
 var embeddedEnv string
 
+// loadEnvFile reads key=value pairs either from the embedded .env contents or
+// from the file at path and applies them to the process environment.
 func loadEnvFile(path string) {
 	if embeddedEnv != "" {
 		scanner := bufio.NewScanner(strings.NewReader(embeddedEnv))
