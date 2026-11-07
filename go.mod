@@ -1,6 +1,6 @@
 module discord-c2
 
-go 1.21
+go 1.26
 
 require (
 	github.com/bwmarrin/discordgo v0.29.0
