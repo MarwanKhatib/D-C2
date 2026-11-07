@@ -1,7 +1,7 @@
 //go:build ffmpegembed && windows
 // +build ffmpegembed,windows
 
-package actions
+package media
 
 import _ "embed"
 

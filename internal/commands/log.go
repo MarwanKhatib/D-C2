@@ -1,10 +1,12 @@
-package main
+package commands
 
 // This file contains the /log slash command handler, which toggles streaming
 // of Go log output into the current device channel.
 
 import (
 	"strings"
+
+	"discord-c2/internal/logstream"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -30,9 +32,9 @@ func handleSlashLog(s *discordgo.Session, i *discordgo.InteractionCreate, data d
 		return
 	}
 	if mode == "on" {
-		enableLogStreaming(s, i.ChannelID)
+		logstream.Enable(s, i.ChannelID)
 	} else {
-		disableLogStreaming()
+		logstream.Disable()
 	}
 	resp := "Log streaming disabled for this channel."
 	if mode == "on" {

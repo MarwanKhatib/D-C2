@@ -1,7 +1,6 @@
 //go:build !ffmpegembed || !windows
 // +build !ffmpegembed !windows
 
-package actions
+package media
 
 var embeddedFFmpegWin []byte
-

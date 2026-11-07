@@ -1,4 +1,4 @@
-package main
+package commands
 
 // This file contains the /help slash command handler and a small interface
 // that allows it to be tested independently from a real Discord session.
@@ -8,7 +8,7 @@ import "github.com/bwmarrin/discordgo"
 // helpResponder abstracts the InteractionRespond method so the help handler
 // can be exercised in unit tests without a live Discord connection.
 type helpResponder interface {
-	InteractionRespond(*discordgo.Interaction, *discordgo.InteractionResponse) error
+	InteractionRespond(*discordgo.Interaction, *discordgo.InteractionResponse, ...discordgo.RequestOption) error
 }
 
 // handleSlashHelp sends an ephemeral help message that summarizes the available
@@ -24,9 +24,9 @@ type helpResponder interface {
 //
 // Example:
 //
-//   // Inside the interaction dispatcher:
-//   case "help":
-//       handleSlashHelp(s, i)
+//	// Inside the interaction dispatcher:
+//	case "help":
+//	    handleSlashHelp(s, i)
 func handleSlashHelp(r helpResponder, i *discordgo.InteractionCreate) {
 	// Build a single formatted help message so operators can quickly see which
 	// controls are available in this device channel.

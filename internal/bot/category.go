@@ -1,4 +1,4 @@
-package main
+package bot
 
 // This file contains helpers for creating and reusing guild categories and
 // per-device text channels.
@@ -23,6 +23,7 @@ func getOrCreateCategory(s *discordgo.Session, name string) (string, error) {
 			}
 		}
 	}
+
 	cat, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 		Name: name,
 		Type: discordgo.ChannelTypeGuildCategory,
@@ -49,6 +50,7 @@ func getOrCreateDeviceChannel(s *discordgo.Session, categoryID, channelName stri
 			}
 		}
 	}
+
 	ch, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 		Name:     channelName,
 		Type:     discordgo.ChannelTypeGuildText,

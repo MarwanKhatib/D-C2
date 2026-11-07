@@ -2,6 +2,14 @@
 *.exe
 discord-c2
 discord-c2-client
+dc2-client
+dc2-client.exe
 client-linux
 client-windows.exe
 
+# graphify build artifacts
+graphify-out/
+
+
+# local build artifacts
+bin/

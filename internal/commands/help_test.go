@@ -1,4 +1,4 @@
-package main
+package commands
 
 // This file contains tests for the /help slash command, ensuring that the
 // handler responds with an ephemeral help message containing key sections.
@@ -20,7 +20,7 @@ type fakeHelpResponder struct {
 
 // InteractionRespond records the interaction and response, satisfying the
 // helpResponder interface used by handleSlashHelp.
-func (f *fakeHelpResponder) InteractionRespond(i *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+func (f *fakeHelpResponder) InteractionRespond(i *discordgo.Interaction, resp *discordgo.InteractionResponse, _ ...discordgo.RequestOption) error {
 	f.calls++
 	f.lastInteraction = i
 	f.lastResponse = resp

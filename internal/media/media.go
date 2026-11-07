@@ -1,4 +1,4 @@
-package actions
+package media
 
 import (
 	"fmt"
@@ -44,6 +44,7 @@ var (
 	}
 	ffmpegExecPath = "ffmpeg"
 )
+
 func getFFmpegExec() string {
 	return ffmpegExecPath
 }
@@ -132,11 +133,12 @@ func installFFmpegLinux() bool {
 
 func writeEmbeddedFFmpeg() (string, error) {
 	dir := filepath.Join(os.TempDir(), "dc2-ffmpeg")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
 	path := filepath.Join(dir, "ffmpeg.exe")
-	if err := os.WriteFile(path, embeddedFFmpegWin, 0755); err != nil {
+	// The extracted binary must be executable, so 0700 is required.
+	if err := os.WriteFile(path, embeddedFFmpegWin, 0700); err != nil { // #nosec G306 -- executable payload
 		return "", err
 	}
 	return path, nil

