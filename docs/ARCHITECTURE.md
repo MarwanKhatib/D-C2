@@ -68,8 +68,15 @@ it retains the last 200 snapshots and calls a notifier when a job finishes.
 
 `/jobs list|show|kill` reads and controls the same manager.
 
-## Interaction path
+## Reconnect handling
 
+`internal/bot/reconnect.go` registers `Ready`, `Resumed`, and `Disconnect`
+handlers. The first `Ready` is ignored because the startup path already posts the
+banner. Later events re-ensure the OS category and device channel, rebind the
+router and log stream, and post a short `🔄 reconnected` notice. Reconciles are
+serialized and debounced for 5 seconds.
+
+## Interaction path
 ```text
 Discord event
  ├─ MessageCreate  → bot.handler        → shell.Run / media.* / process.Restart

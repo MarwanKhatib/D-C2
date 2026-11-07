@@ -70,7 +70,6 @@ when building.
 - Add `-buildvcs=false` if you need identical hashes across checkouts.
 
 ## 6. Manual build (no script)
-
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -trimpath -ldflags "-s -w" -o dc2-client .
@@ -78,3 +77,6 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 
 Cross-compilation works from any OS. `darwin` requires `CGO_ENABLED=0`; Windows
 and Linux build either way.
+
+Tagged releases are built by `.github/workflows/release.yml`; see
+[`RELEASE.md`](./RELEASE.md).

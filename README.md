@@ -73,7 +73,7 @@ Full paths: [server setup](docs/SERVER.md) → [build](docs/BUILD.md) →
 
 ## 2. Project Structure Map
 
-Detailed guides: [Configuration](docs/CONFIGURATION.md), [Control reference](docs/CONTROL.md), [Server setup](docs/SERVER.md), [Build artifacts](docs/BUILD.md), [Install on a target](docs/INSTALL.md), [Stager](docs/STAGER.md), [OPSEC](docs/OPSEC.md), [Two-container lab](docs/LAB.md), [Security](docs/SECURITY.md), [Skills used](docs/SKILLS.md), [Architecture](docs/ARCHITECTURE.md).
+Detailed guides: [Configuration](docs/CONFIGURATION.md), [Control reference](docs/CONTROL.md), [Server setup](docs/SERVER.md), [Build artifacts](docs/BUILD.md), [Release](docs/RELEASE.md), [Install on a target](docs/INSTALL.md), [Stager](docs/STAGER.md), [OPSEC](docs/OPSEC.md), [Two-container lab](docs/LAB.md), [Security](docs/SECURITY.md), [Skills used](docs/SKILLS.md), [Architecture](docs/ARCHITECTURE.md).
 
 Repository root:
 
@@ -89,6 +89,7 @@ discord-c2/
 │   │   ├── bot.go              # session startup, registration, banner
 │   │   ├── category.go         # OS category + per-device channel helpers
 │   │   ├── handler.go          # message/emoji shortcuts, quick help
+│   │   ├── reconnect.go        # Ready/Resumed watchdog, channel rebind
 │   │   └── process.go          # restart wrapper
 │   ├── commands/
 │   │   ├── router.go           # interaction router (slash, buttons, modals)
@@ -131,6 +132,7 @@ discord-c2/
 │   ├── ARCHITECTURE.md         # package boundaries and data flow
 │   ├── SERVER.md               # Discord control plane setup
 │   ├── BUILD.md                # artifact generation and tags
+│   ├── RELEASE.md              # tagging, workflow, verification, rollback
 │   ├── INSTALL.md              # Linux/Windows/macOS deployment
 │   ├── STAGER.md               # bootstrap installer patterns
 │   ├── CONFIGURATION.md        # env vars, precedence, secret storage
