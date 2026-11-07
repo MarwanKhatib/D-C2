@@ -4,9 +4,11 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"discord-c2/internal/bot"
 	"discord-c2/internal/config"
+	"discord-c2/internal/preflight"
 )
 
 func main() {
@@ -15,6 +17,15 @@ func main() {
 		log.Printf("%v", err)
 		return
 	}
+
+	if len(os.Args) > 1 && (os.Args[1] == "--check" || os.Args[1] == "check") {
+		if err := preflight.Run(cfg); err != nil {
+			log.Printf("preflight: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := bot.Run(cfg); err != nil {
 		log.Printf("client stopped: %v", err)
 	}

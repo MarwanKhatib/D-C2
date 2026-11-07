@@ -5,7 +5,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 GO="${GO:-go}"
-mkdir -p bin
 
 # The attacker posts as a webhook, so the operator allowlist would reject it.
 # Use a throwaway copy of .env with the allowlist cleared for the lab.
@@ -14,7 +13,7 @@ sed 's/^DISCORD_ALLOWED_USERS=.*/DISCORD_ALLOWED_USERS=/' .env > "$LAB_ENV"
 chmod 600 "$LAB_ENV"
 
 echo "[lab] building static client"
-CGO_ENABLED=0 "$GO" build -trimpath -ldflags "-s -w" -o bin/dc2-linux .
+GO="$GO" ./scripts/build.sh linux
 
 echo "[lab] building images"
 docker build -q -f deploy/Dockerfile.target -t dc2-target:lab .

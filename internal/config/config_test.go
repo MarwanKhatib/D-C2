@@ -94,6 +94,9 @@ func TestRuntimeKnobs(t *testing.T) {
 	if cfg.MaxOutput != 4096 || cfg.MaxJobs != 3 {
 		t.Errorf("limits = %d/%d", cfg.MaxOutput, cfg.MaxJobs)
 	}
+	if cfg.ChunkSize != DefaultChunkSize {
+		t.Errorf("ChunkSize = %d", cfg.ChunkSize)
+	}
 	if cfg.AuditLog != "/tmp/audit.jsonl" {
 		t.Errorf("AuditLog = %q", cfg.AuditLog)
 	}

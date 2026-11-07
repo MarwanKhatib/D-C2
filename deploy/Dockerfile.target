@@ -9,7 +9,7 @@ RUN apt-get update \
 RUN useradd --create-home --shell /bin/bash --gid operator operator
 
 WORKDIR /app
-COPY bin/dc2-linux /app/dc2-client
+COPY dist/dc2-linux-amd64 /app/dc2-client
 RUN chmod 0755 /app/dc2-client
 
 USER operator

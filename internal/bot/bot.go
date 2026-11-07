@@ -37,6 +37,8 @@ var (
 	allowedUsers map[string]bool
 	// jobManager owns asynchronous command execution for this process.
 	jobManager *jobs.Manager
+	// transferChunkSize is the split size for large downloads.
+	transferChunkSize int64
 	// startupComplete becomes true once the initial banner and channel are set.
 	startupComplete atomic.Bool
 	// reconcileMu serializes reconnect reconciliation.
@@ -78,6 +80,8 @@ func Run(cfg config.Config) error {
 	defer auditLog.Close()
 	jobManager = jobs.New(cfg.MaxJobs, cfg.JobTimeout, cfg.MaxOutput, auditLog)
 	commands.SetJobs(jobManager)
+	transferChunkSize = cfg.ChunkSize
+	commands.SetTransferChunkSize(cfg.ChunkSize)
 
 	dg, err := discordgo.New("Bot " + cfg.BotToken)
 	if err != nil {
