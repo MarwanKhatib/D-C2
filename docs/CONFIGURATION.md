@@ -27,10 +27,14 @@ $EDITOR .env
 | `DISCORD_BOT_TOKEN` | yes | — | Bot token from the Discord Developer Portal. Do **not** include the `Bot ` prefix. |
 | `DISCORD_GUILD_ID` | yes | — | Numeric ID of the guild (server) that hosts device channels. |
 | `DISCORD_ALLOWED_USERS` | no | empty | Comma-separated Discord user IDs allowed to control devices. Empty means any member who can post in the device channel. Get an ID with Developer Mode → right-click user → **Copy User ID**. |
+| `DC2_JOB_TIMEOUT` | no | `120s` | Timeout for one asynchronous command (`/cmd`, 🏃‍♂️, quick buttons). Go duration syntax. |
+| `DC2_MAX_OUTPUT` | no | `200000` | Maximum captured bytes (stdout+stderr) per job. |
+| `DC2_MAX_JOBS` | no | `8` | Maximum concurrent jobs per client. |
+| `DC2_AUDIT_LOG` | no | `~/.config/dc2/audit.jsonl` | JSON-lines audit trail. Empty disables auditing; a relative path is resolved against the working directory. |
 | `DC2_CHANNEL_NAME` | lab only | `dc2-target-operator` | Channel the lab attacker script looks for. Not read by the client. |
 
-The client itself only reads the first three.
-
+The client reads the `DISCORD_*` and `DC2_*` variables above; `DC2_CHANNEL_NAME`
+is used only by the lab attacker.
 ## 3. Precedence
 
 1. Embedded payload (only when built with `-tags envembed`): applied first, and

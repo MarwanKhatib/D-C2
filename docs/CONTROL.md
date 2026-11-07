@@ -13,12 +13,31 @@ its OS category (`windows`, `linux`, `mac`, `other`).
 - If `DISCORD_ALLOWED_USERS` is empty, any guild member who can post in the
   device channel can control the host. The client logs a warning at startup.
 
-## 2. Slash commands
+## 2. Execution model
+
+Arbitrary commands (`/cmd`, the 🏃‍♂️ shortcut, and the quick-info buttons) run as
+**asynchronous jobs**:
+
+1. The client replies immediately with a job ID: `🆔 job abc12345 started`.
+2. The command runs with a timeout, concurrency limit, and bounded output.
+3. When it finishes, the client posts the status, exit code, duration, and
+   output as one or more fenced messages.
+
+Defaults: 120 s timeout, 200 KB output, 8 concurrent jobs. Configure with
+`DC2_JOB_TIMEOUT`, `DC2_MAX_OUTPUT`, and `DC2_MAX_JOBS`. Every job is written to
+the local audit log (`DC2_AUDIT_LOG`).
+
+Fixed commands (`/fs`, `/sys`, media) stay synchronous and reply inline.
+
+## 3. Slash commands
 
 | Command | Arguments | Action |
 |---|---|---|
 | `/help` | — | Ephemeral, OS-aware summary of available controls. |
-| `/cmd` | `command` | Run a shell command (`cmd.exe /c` on Windows, `/bin/bash -c` elsewhere). |
+| `/cmd` | `command` | Start a shell command job (`cmd.exe /c` on Windows, `/bin/bash -c` elsewhere). |
+| `/jobs list` | — | Recent jobs with status, duration, and command. |
+| `/jobs show` | `id` | Job output (chunked). |
+| `/jobs kill` | `id` | Cancel a running job. |
 | `/media screenshot` | — | Capture all displays and upload PNGs. |
 | `/media camera` | — | Capture a still from the default camera (ffmpeg). |
 | `/media mic` | `duration` 1–300 s, `path` | Record microphone audio. Default 10 s. |
@@ -36,6 +55,7 @@ its OS category (`windows`, `linux`, `mac`, `other`).
 | `/win defender` | `mode` (`on`/`off`) | Toggle Defender real-time protection. |
 | `/win exclude` | `path` | Add a Defender exclusion (defaults to the current executable). |
 | `/dev restart` | — | Re-exec the client process. |
+| `/dev info` | — | Version, commit, OS/arch, Go version, uptime, running jobs. |
 
 Commands are grouped in the Discord picker: `media`, `fs`, `sys`, `win`, `dev`.
 Discord scopes commands to the guild, not the channel, so the `win` group is
@@ -46,8 +66,7 @@ with whichever client last synced commands.
 Windows-only subcommands also reply with an "unsupported" message if invoked on
 another platform.
 
-## 3. Message shortcuts
-
+## 4. Message shortcuts
 Send these in the device channel:
 
 | Message | Action |
@@ -62,21 +81,23 @@ Send these in the device channel:
 | `🔁` | Restart the client. |
 | `💀` | Close the session and exit. |
 
-## 4. Buttons and modals
+## 5. Buttons and modals
 
 The quick-help message exposes buttons for `whoami`, `id`, `hostname`, `ip info`,
 `cwd`, and screenshots. `Run command` and `ls` open modals.
 
-## 5. Limits and behavior
+## 6. Limits and behavior
 
-- Command output is chunked into 1800-character code blocks; long output becomes
-  multiple messages.
+- Command output is capped per job (`DC2_MAX_OUTPUT`, default 200 KB) and then
+  chunked into Discord-sized code blocks; long output becomes multiple messages.
+- Jobs time out (`DC2_JOB_TIMEOUT`, default 120 s) and are limited to
+  `DC2_MAX_JOBS` concurrent processes (default 8).
 - File transfers are capped at Discord's 8 MB attachment limit.
 - Only one segmented recording can run at a time (`media.videoState`).
 - Log streaming forwards each log line as a separate message; leave it off
   outside troubleshooting to avoid rate limits.
 
-## 6. Non-Discord control (lab)
+## 7. Non-Discord control (lab)
 
 `lab/attacker.sh` posts commands through a channel webhook, which the client
 accepts because webhook messages are not authored by the bot itself. See

@@ -27,7 +27,10 @@ main
 |---|---|---|
 | `main` | configuration wiring | `config`, `bot` |
 | `internal/bot` | session, registration, channel provisioning, message shortcuts | `commands`, `config`, `logstream`, `media`, `winsec`, `process` |
-| `internal/commands` | slash commands, buttons, modals | `shell`, `media`, `winsec`, `logstream`, `process` |
+| `internal/commands` | slash commands, buttons, modals | `jobs`, `shell`, `media`, `winsec`, `logstream`, `process` |
+| `internal/jobs` | async execution, timeouts, output cap, cancellation | `audit` |
+| `internal/audit` | JSONL audit trail | stdlib |
+| `internal/version` | build metadata | stdlib |
 | `internal/shell` | command execution and output chunking | stdlib, `discordgo` |
 | `internal/media` | capture/recording, ffmpeg discovery | stdlib, `discordgo`, `screenshot` |
 | `internal/winsec` | firewall/Defender queries and controls | stdlib |
@@ -47,7 +50,23 @@ Two values are process-wide because Discord handlers receive no custom context:
   router ignores interactions from other channels.
 
 `media` keeps its own mutex-guarded recording state (`videoState`) because only
-one segmented recording can run per process.
+one segmented recording can run per process. `jobs.Manager` holds the job table;
+it retains the last 200 snapshots and calls a notifier when a job finishes.
+
+## Job lifecycle
+
+```text
+/cmd | 🏃‍♂️ | quick button
+   └─ jobs.Manager.Start
+        ├─ reject if running >= DC2_MAX_JOBS
+        ├─ context.WithTimeout(DC2_JOB_TIMEOUT)
+        ├─ exec.CommandContext → bounded buffer (DC2_MAX_OUTPUT)
+        ├─ audit.write(job.start)
+        ├─ on finish: status/exit/duration, audit.write(job.finish)
+        └─ notifier → post result chunks to the device channel
+```
+
+`/jobs list|show|kill` reads and controls the same manager.
 
 ## Interaction path
 

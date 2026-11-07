@@ -50,13 +50,26 @@ On Windows:
 Get-FileHash dist\dc2-windows-amd64.exe -Algorithm SHA256
 ```
 
-## 4. Reproducibility
+## 4. Version metadata
+
+`scripts/build.sh` injects:
+
+```text
+discord-c2/internal/version.Version  = git describe --tags --always --dirty
+discord-c2/internal/version.Commit   = git rev-parse --short HEAD
+discord-c2/internal/version.Date     = UTC build timestamp
+```
+
+`/dev info` displays them. Override with `VERSION=... COMMIT=... BUILD_DATE=...`
+when building.
+
+## 5. Reproducibility
 
 - Pin the Go toolchain version used for a release.
 - Commit `go.mod` and `go.sum` (already tracked).
 - Add `-buildvcs=false` if you need identical hashes across checkouts.
 
-## 5. Manual build (no script)
+## 6. Manual build (no script)
 
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \

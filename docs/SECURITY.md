@@ -19,6 +19,7 @@ can execute commands on the host. The primary assets are:
 | `.env` gitignored and mode `600` | `.gitignore`, setup docs |
 | Token never logged | `internal/config`, startup logs |
 | HTTP timeouts for attachment transfer | `internal/httpx` |
+| Local JSONL audit trail (job, operator, command, exit, duration) | `internal/audit`, `internal/jobs` |
 | Extracted ffmpeg dir `0700`, binary `0700` | `internal/media/media.go` |
 | Unprivileged, capability-dropped lab container | `deploy/Dockerfile.target`, `lab/run.sh` |
 | Dependency upgrades (no known reachable CVEs) | `go.mod` |
@@ -61,6 +62,8 @@ them.
   shared guild.
 - **No command confirmation.** Destructive commands execute immediately.
 - **8 MB transfer cap** with no resumable/chunked transfer.
+- **Audit log contains operator input.** It is written mode `0600`; protect or
+  rotate it if commands may contain sensitive values.
 - **Discord is the control plane.** Compromise of the bot token implies
   compromise of every connected host.
 - **Windows security commands** require an elevated client.

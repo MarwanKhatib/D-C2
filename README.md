@@ -100,9 +100,15 @@ discord-c2/
 │   │   ├── media.go            # /media screenshot /media camera /media mic /media record /media recordstop
 │   │   ├── system.go           # /sys ps /sys pidinfo
 │   │   ├── windows.go          # /win sec /win firewall /win defender /win exclude
+│   │   ├── jobs.go             # /jobs list|show|kill
+│   │   ├── info.go             # /dev info
 │   │   ├── control.go          # /dev restart
 │   │   └── help_test.go        # unit test for the help responder
 │   ├── config/config.go        # .env loading + Config type
+│   ├── audit/audit.go          # JSONL audit trail
+│   ├── jobs/jobs.go            # async execution, timeouts, cancellation
+│   ├── jobs/render.go          # job ack/result formatting
+│   ├── version/version.go      # build metadata (-ldflags)
 │   ├── logstream/logstream.go  # io.Writer that mirrors logs into Discord
 │   ├── media/
 │   │   ├── media.go            # capture/recording + ffmpeg discovery
@@ -145,8 +151,12 @@ discord-c2/
   provisioning, the connection banner, and the message shortcut handler.
 - `internal/commands` — one file per command family plus a router. Handlers only
   format Discord responses and delegate work to leaf packages.
-- `internal/shell` — runs `cmd.exe /c` or `/bin/bash -c` and chunks output into
-  Discord-sized messages.
+- `internal/jobs` — asynchronous execution: timeouts, concurrency limit, bounded
+  output, cancellation, and result formatting.
+- `internal/audit` — JSON-lines audit trail for command lifecycle events.
+- `internal/version` — build metadata injected with `-ldflags`.
+- `internal/shell` — synchronous runner for fixed info commands; chunks output
+  into Discord-sized messages.
 - `internal/logstream` — `io.Writer` wrapper used as `log.SetOutput`.
 - `internal/media` — screenshots, camera, microphone, segmented video, and
   ffmpeg discovery (PATH → bundled → embedded → package-manager install).
@@ -370,16 +380,31 @@ All operations are driven from the **per‑device channel** in your Discord serv
 
 #### `/cmd <command>`
 
-- Runs a shell command on the device:
+- Starts an asynchronous shell command job on the device:
   - Windows: `cmd.exe /c <command>`.
   - Linux/macOS: `/bin/bash -c <command>`.
-- Output is sent back to the channel. Long output may be chunked or uploaded as a file.
+- Replies immediately with a job ID (for example `🆔 job 530f3f04 started`).
+- When the command finishes, posts status, exit code, duration, and bounded
+  output as one or more fenced messages.
+- Defaults: 120 s timeout, 200 KB output, 8 concurrent jobs. Configure with
+  `DC2_JOB_TIMEOUT`, `DC2_MAX_OUTPUT`, `DC2_MAX_JOBS`.
+- Every job is appended to the local audit log (`DC2_AUDIT_LOG`).
 
 Example:
 
 ```text
 /cmd command="ipconfig /all"
 ```
+
+#### `/jobs <list|show|kill>`
+
+- `/jobs list` – recent jobs with status, duration, and command.
+- `/jobs show <id>` – output for one job.
+- `/jobs kill <id>` – cancel a running job.
+
+#### `/dev info`
+
+- Version, commit, OS/arch, Go version, uptime, running jobs, device channel ID.
 
 #### `/media screenshot`
 
@@ -753,6 +778,11 @@ A: The code enforces an 8 MB limit for files sent to Discord to comply with stan
 
 Recent notable changes:
 
+- Asynchronous job engine: `/cmd`, 🏃‍♂️, and quick buttons return a job ID and post
+  bounded output when done; `/jobs list|show|kill`; per-job timeouts and
+  concurrency limits; local JSONL audit trail (`DC2_AUDIT_LOG`).
+- `/dev info` reports version, commit, OS/arch, uptime, and running jobs;
+  `scripts/build.sh` injects version metadata.
 - Security audit: upgraded `gorilla/websocket` (GO-2026-6278), `discordgo`, and
   `screenshot`; added `DISCORD_ALLOWED_USERS`; attachment HTTP timeout; ffmpeg
   temp permissions tightened. `govulncheck` and `staticcheck` are clean.
