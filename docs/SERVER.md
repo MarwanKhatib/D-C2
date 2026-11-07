@@ -103,7 +103,7 @@ filesystem and media commands.
   in the device channel can run commands on the host.
 - **Token = full control of the guild.** Store it in `.env` mode `600`, in a
   secret manager, or embed it with `-tags envembed` only for artifacts you
-  control. Rotate immediately if it leaks.
+  control. Rotate immediately if it leaks. See [`OPSEC.md`](./OPSEC.md).
 - **Log streaming** (`/sys log on`) is useful for troubleshooting and noisy for
   long-running operation.
 - **Multiple operators**: add their user IDs to `DISCORD_ALLOWED_USERS`

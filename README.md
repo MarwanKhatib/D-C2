@@ -73,7 +73,7 @@ Full paths: [server setup](docs/SERVER.md) → [build](docs/BUILD.md) →
 
 ## 2. Project Structure Map
 
-Detailed guides: [Configuration](docs/CONFIGURATION.md), [Control reference](docs/CONTROL.md), [Server setup](docs/SERVER.md), [Build artifacts](docs/BUILD.md), [Install on a target](docs/INSTALL.md), [Stager](docs/STAGER.md), [Two-container lab](docs/LAB.md), [Security](docs/SECURITY.md), [Skills used](docs/SKILLS.md), [Architecture](docs/ARCHITECTURE.md).
+Detailed guides: [Configuration](docs/CONFIGURATION.md), [Control reference](docs/CONTROL.md), [Server setup](docs/SERVER.md), [Build artifacts](docs/BUILD.md), [Install on a target](docs/INSTALL.md), [Stager](docs/STAGER.md), [OPSEC](docs/OPSEC.md), [Two-container lab](docs/LAB.md), [Security](docs/SECURITY.md), [Skills used](docs/SKILLS.md), [Architecture](docs/ARCHITECTURE.md).
 
 Repository root:
 
@@ -137,6 +137,7 @@ discord-c2/
 │   ├── CONTROL.md              # commands, shortcuts, access model
 │   ├── LAB.md                  # two-container lab
 │   ├── SECURITY.md             # audit results and hardening
+│   ├── OPSEC.md                # operator and runtime operational security
 │   └── SKILLS.md               # audit skills and sources
 ├── .gitignore
 └── README.md

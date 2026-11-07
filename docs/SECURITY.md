@@ -1,5 +1,8 @@
 # Security notes
 
+> Operational guidance for running this client on an authorized engagement is in
+> [`OPSEC.md`](./OPSEC.md).
+
 ## 1. Threat model
 
 The client is a remote-control agent. Anyone who can post in the device channel
