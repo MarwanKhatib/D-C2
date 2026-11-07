@@ -1,0 +1,48 @@
+title: Non-Browser Process Connecting to Discord API
+id: 8d1f3c2a-5b7e-4c9d-a1f0-3e6b2c7d9a41
+status: experimental
+description: >
+  Detects a process that is not a known browser or the Discord client making
+  network connections to Discord API endpoints. Discord is abused as a C2 and
+  exfiltration channel by commodity and custom implants.
+references:
+  - https://attack.mitre.org/techniques/T1102/002/
+  - https://attack.mitre.org/techniques/T1071/001/
+author: D-C2 detection pack
+date: 2026/11/08
+tags:
+  - attack.command_and_control
+  - attack.t1102.002
+  - attack.t1071.001
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    Initiated: 'true'
+    DestinationHostname|contains:
+      - 'discord.com'
+      - 'discordapp.com'
+  filter_legit:
+    Image|endswith:
+      - '\discord.exe'
+      - '\discordptb.exe'
+      - '\discordcanary.exe'
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\firefox.exe'
+      - '\brave.exe'
+      - '\opera.exe'
+  filter_system:
+    Image|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+    Image|endswith:
+      - '\svchost.exe'
+      - '\MicrosoftEdgeUpdate.exe'
+  condition: selection and not filter_legit and not filter_system
+falsepositives:
+  - Electron applications that embed Discord SDKs
+  - CI/CD agents posting build notifications through webhooks
+  - Developer tooling that uses Discord OAuth
+level: high

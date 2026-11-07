@@ -1,7 +1,9 @@
 # Security notes
 
 > Operational guidance for running this client on an authorized engagement is in
-> [`OPSEC.md`](./OPSEC.md).
+> [`OPSEC.md`](./OPSEC.md). Detection content and hunting queries are in
+> [`../detections/`](../detections/), with a validation plan in
+> [`PURPLE.md`](./PURPLE.md).
 
 ## 1. Threat model
 

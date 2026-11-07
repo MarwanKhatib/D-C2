@@ -60,6 +60,8 @@ journalctl -u dc2 -n 50 --no-pager
 Then check Discord: new category, `#hostname-username`, pinned banner, `/help`.
 `/cmd command:"id"` returns a job ID and posts the output asynchronously;
 `/jobs list` shows recent jobs; `/dev info` shows version and uptime.
+Run `dc2-client --check` first to validate token, guild, permissions, audit
+path, and ffmpeg without connecting.
 
 ## 3. Windows
 

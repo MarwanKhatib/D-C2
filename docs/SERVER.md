@@ -57,6 +57,7 @@ DISCORD_ALLOWED_USERS=...
 
 ```bash
 scripts/build.sh linux            # produces dist/dc2-linux-amd64 + SHA256SUMS
+./dist/dc2-linux-amd64 --check    # token, guild, permissions, audit path, ffmpeg
 ./dist/dc2-linux-amd64            # reads .env from the current directory
 ```
 

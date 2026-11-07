@@ -45,7 +45,7 @@ Fixed commands (`/fs`, `/sys`, media) stay synchronous and reply inline.
 | `/media recordstop` | — | Stop the active recording. |
 | `/fs cwd` | — | Print the working directory. |
 | `/fs ls` | `path` | List a directory. |
-| `/fs download` | `source`, `destination` | Upload a file from the host (max 8 MB). |
+| `/fs download` | `source`, `destination` | Send a file from the host. Files over `DC2_CHUNK_SIZE` are split into parts plus `manifest.json`. |
 | `/fs upload` | `source` attachment, `destination` | Write an attachment to the host. |
 | `/sys ps` | — | List processes (`ps aux` / `tasklist`). |
 | `/sys pidinfo` | `pid` | Inspect one process. |
@@ -76,7 +76,7 @@ Send these in the device channel:
 | `📸` | Screenshot. |
 | `🎙` | 10-second microphone recording. |
 | `📷` | Camera snapshot. |
-| `👇 <path>` | Download a file from the host (max 8 MB). |
+| `👇 <path>` | Download a file from the host, split when over the chunk size. |
 | `☝️ <path>` + attachment | Upload the attachment to `<path>`. |
 | `🔁` | Restart the client. |
 | `💀` | Close the session and exit. |
@@ -92,7 +92,10 @@ The quick-help message exposes buttons for `whoami`, `id`, `hostname`, `ip info`
   chunked into Discord-sized code blocks; long output becomes multiple messages.
 - Jobs time out (`DC2_JOB_TIMEOUT`, default 120 s) and are limited to
   `DC2_MAX_JOBS` concurrent processes (default 8).
-- File transfers are capped at Discord's 8 MB attachment limit.
+- File transfers are capped at Discord's 8 MB attachment limit per message;
+  larger downloads are split into parts plus a `manifest.json` (each part is a
+  separate message, so large files are rate-limited by Discord).
+- Uploads from Discord remain bounded by Discord's own attachment limit.
 - Only one segmented recording can run at a time (`media.videoState`).
 - Log streaming forwards each log line as a separate message; leave it off
   outside troubleshooting to avoid rate limits.

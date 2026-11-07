@@ -59,10 +59,12 @@ From that device channel you can:
 1. **Configure** — `cp .env.example .env && chmod 600 .env`, then set
    `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, and `DISCORD_ALLOWED_USERS`.
 2. **Build** — `scripts/build.sh linux` (or `windows`, `darwin`, `all`).
-3. **Run** — `./dist/dc2-linux-amd64` from the directory containing `.env`.
-4. **Control** — in the new `#hostname-username` channel use `/help`, `/cmd`,
+3. **Check** — `./dist/dc2-linux-amd64 --check` validates the token, guild,
+   permissions, audit path, and ffmpeg before connecting.
+4. **Run** — `./dist/dc2-linux-amd64` from the directory containing `.env`.
+5. **Control** — in the new `#hostname-username` channel use `/help`, `/cmd`,
    `/media`, `/fs`, `/sys`, `/win`, `/dev`.
-5. **Deploy** — `sudo scripts/install-linux.sh dist/dc2-linux-amd64 .env`
+6. **Deploy** — `sudo scripts/install-linux.sh dist/dc2-linux-amd64 .env`
    (Windows: `scripts/install-windows.ps1`).
 
 Full paths: [server setup](docs/SERVER.md) → [build](docs/BUILD.md) →
@@ -73,7 +75,7 @@ Full paths: [server setup](docs/SERVER.md) → [build](docs/BUILD.md) →
 
 ## 2. Project Structure Map
 
-Detailed guides: [Configuration](docs/CONFIGURATION.md), [Control reference](docs/CONTROL.md), [Server setup](docs/SERVER.md), [Build artifacts](docs/BUILD.md), [Release](docs/RELEASE.md), [Install on a target](docs/INSTALL.md), [Stager](docs/STAGER.md), [OPSEC](docs/OPSEC.md), [Two-container lab](docs/LAB.md), [Security](docs/SECURITY.md), [Skills used](docs/SKILLS.md), [Architecture](docs/ARCHITECTURE.md).
+Detailed guides: [Configuration](docs/CONFIGURATION.md), [Control reference](docs/CONTROL.md), [Server setup](docs/SERVER.md), [Build artifacts](docs/BUILD.md), [Release](docs/RELEASE.md), [Install on a target](docs/INSTALL.md), [Stager](docs/STAGER.md), [OPSEC](docs/OPSEC.md), [Purple-team validation](docs/PURPLE.md), [Two-container lab](docs/LAB.md), [Security](docs/SECURITY.md), [Skills used](docs/SKILLS.md), [Architecture](docs/ARCHITECTURE.md).
 
 Repository root:
 
@@ -117,7 +119,13 @@ discord-c2/
 │   │   └── ffmpeg_embed_stub.go
 │   ├── process/process.go      # self re-exec (restart)
 │   ├── shell/shell.go          # command execution + output chunking
+│   ├── transfer/transfer.go    # chunked downloads + manifest
+│   ├── preflight/preflight.go  # --check validation
 │   └── winsec/winsec.go        # firewall/Defender status and controls
+├── detections/
+│   ├── yara/discord_c2.yar     # token/webhook/client strings
+│   ├── sigma/                  # Discord API + shell-spawn rules
+│   └── IOCS.md                 # indicators, TTP map, hunting queries
 ├── scripts/
 │   ├── build.sh                # cross-compile artifacts + SHA256SUMS
 │   ├── install-linux.sh        # systemd install
@@ -140,6 +148,7 @@ discord-c2/
 │   ├── LAB.md                  # two-container lab
 │   ├── SECURITY.md             # audit results and hardening
 │   ├── OPSEC.md                # operator and runtime operational security
+│   ├── PURPLE.md               # detection validation plan
 │   └── SKILLS.md               # audit skills and sources
 ├── .gitignore
 └── README.md
@@ -523,8 +532,10 @@ Note: on startup, the client automatically enables log streaming for the device 
 
 #### `/fs download <source> [destination]`
 
-- Streams a small local file back as an attachment.
-- Enforces 8 MB limit.
+- Streams a local file back as an attachment.
+- Files over `DC2_CHUNK_SIZE` (default 7 MiB) are split into numbered parts plus
+  a `manifest.json` containing the whole-file SHA-256, part hashes, and sizes.
+- Each part is a separate message; Discord rate-limits very large transfers.
 - `source`:
   - File path on the device.
   - `~/` is expanded.
@@ -773,7 +784,7 @@ A: Yes. Add the definition in `internal/commands/definitions.go`, route it in `h
 A: Yes. Any Discord user with access to the device channel can use the slash commands and emoji shortcuts, unless `DISCORD_ALLOWED_USERS` is set, in which case only those user IDs are accepted.
 
 **Q: How big can uploads/fs downloads be?**  
-A: The code enforces an 8 MB limit for files sent to Discord to comply with standard Discord file limits.
+A: Downloads are split into parts of `DC2_CHUNK_SIZE` (default 7 MiB) with a manifest, so large files work. Uploads from Discord remain bounded by Discord's own attachment limit (8 MB in this client).
 
 ---
 
@@ -781,6 +792,12 @@ A: The code enforces an 8 MB limit for files sent to Discord to comply with stan
 
 Recent notable changes:
 
+- Chunked downloads: files over `DC2_CHUNK_SIZE` (7 MiB default) are split into
+  parts with a `manifest.json` and SHA-256 hashes.
+- `--check` preflight validates token, guild, permissions, audit path, ffmpeg,
+  and `.env` permissions without connecting.
+- Published detection pack (`detections/`): YARA, Sigma, IOCs, ATT&CK mapping,
+  hunting queries, and a purple-team validation plan.
 - Asynchronous job engine: `/cmd`, 🏃‍♂️, and quick buttons return a job ID and post
   bounded output when done; `/jobs list|show|kill`; per-job timeouts and
   concurrency limits; local JSONL audit trail (`DC2_AUDIT_LOG`).

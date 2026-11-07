@@ -31,6 +31,7 @@ $EDITOR .env
 | `DC2_MAX_OUTPUT` | no | `200000` | Maximum captured bytes (stdout+stderr) per job. |
 | `DC2_MAX_JOBS` | no | `8` | Maximum concurrent jobs per client. |
 | `DC2_AUDIT_LOG` | no | `~/.config/dc2/audit.jsonl` | JSON-lines audit trail. Empty disables auditing; a relative path is resolved against the working directory. |
+| `DC2_CHUNK_SIZE` | no | `7340032` (7 MiB) | Split size for downloads larger than Discord's 8 MiB attachment limit. Clamped to 8 MiB. |
 | `DC2_CHANNEL_NAME` | lab only | `dc2-target-operator` | Channel the lab attacker script looks for. Not read by the client. |
 
 The client reads the `DISCORD_*` and `DC2_*` variables above; `DC2_CHANNEL_NAME`

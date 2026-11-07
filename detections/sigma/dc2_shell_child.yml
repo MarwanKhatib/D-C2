@@ -1,0 +1,34 @@
+title: Shell Spawned by D-C2 Client
+id: 2b6e9d14-7c3a-4f58-9e21-6a0d4b8c1f73
+status: experimental
+description: >
+  The D-C2 client executes operator commands by spawning cmd.exe or bash, and
+  media actions spawn ffmpeg. Detects that parent/child relationship.
+references:
+  - https://attack.mitre.org/techniques/T1059/003/
+  - https://attack.mitre.org/techniques/T1059/004/
+author: D-C2 detection pack
+date: 2026/11/08
+tags:
+  - attack.execution
+  - attack.t1059.003
+  - attack.t1059.004
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  parent:
+    ParentImage|endswith:
+      - '\dc2-client.exe'
+      - '\discord-c2.exe'
+  child:
+    Image|endswith:
+      - '\cmd.exe'
+      - '\powershell.exe'
+      - '\pwsh.exe'
+      - '\bash.exe'
+      - '\ffmpeg.exe'
+  condition: parent and child
+falsepositives:
+  - Administrators running the client interactively for testing
+level: high
