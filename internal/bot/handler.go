@@ -22,7 +22,7 @@ const maxDiscordFileSize = 8388608
 // handler processes messages in the per-device channel, wiring emoji and text
 // shortcuts to the same capabilities exposed via slash commands.
 func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.ChannelID != channelID || m.Author.ID == s.State.User.ID {
+	if m.ChannelID != deviceChannel() || m.Author.ID == s.State.User.ID {
 		return
 	}
 	if !userAllowed(m.Author.ID) {

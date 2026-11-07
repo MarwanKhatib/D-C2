@@ -36,6 +36,22 @@ jobs:
           GOOS=windows GOARCH=amd64 go build -o /tmp/dc2.exe .
           GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/dc2-mac .
 
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build
+        run: go build ./...
+
+      - name: test
+        run: go test -count=1 ./...
+
   security:
     runs-on: ubuntu-latest
     steps:
