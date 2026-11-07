@@ -36,7 +36,7 @@ func TestWindowsGroupIsOSFiltered(t *testing.T) {
 func TestGroupsExposeSubcommands(t *testing.T) {
 	for _, cmd := range Definitions("windows") {
 		switch cmd.Name {
-		case GroupMedia, GroupFS, GroupSys, GroupWin, GroupDev:
+		case GroupMedia, GroupFS, GroupSys, GroupWin, GroupDev, "jobs":
 			if len(cmd.Options) == 0 {
 				t.Errorf("%s: group has no subcommands", cmd.Name)
 			}

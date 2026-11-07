@@ -6,7 +6,18 @@ import (
 	"bufio"
 	"errors"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
+)
+
+// Defaults for optional runtime knobs.
+const (
+	DefaultJobTimeout = 120 * time.Second
+	DefaultMaxOutput  = 200_000
+	DefaultMaxJobs    = 8
+	DefaultAuditLog   = "dc2-audit.jsonl"
 )
 
 // Config is the runtime configuration required to start the client.
@@ -18,6 +29,14 @@ type Config struct {
 	// AllowedUsers limits control to these Discord user IDs. Empty means any
 	// guild member who can post in the device channel may control the host.
 	AllowedUsers map[string]bool
+	// JobTimeout bounds a single asynchronous command.
+	JobTimeout time.Duration
+	// MaxOutput is the maximum captured bytes per command (stdout+stderr).
+	MaxOutput int
+	// MaxJobs is the maximum number of concurrent asynchronous commands.
+	MaxJobs int
+	// AuditLog is the JSONL audit path. Empty disables auditing.
+	AuditLog string
 }
 
 // Allowed reports whether userID may control this device. An empty allowlist
@@ -42,11 +61,53 @@ func Load(embedded, path string) (Config, error) {
 		BotToken:     os.Getenv("DISCORD_BOT_TOKEN"),
 		GuildID:      os.Getenv("DISCORD_GUILD_ID"),
 		AllowedUsers: parseAllowedUsers(os.Getenv("DISCORD_ALLOWED_USERS")),
+		JobTimeout:   envDuration("DC2_JOB_TIMEOUT", DefaultJobTimeout),
+		MaxOutput:    envInt("DC2_MAX_OUTPUT", DefaultMaxOutput),
+		MaxJobs:      envInt("DC2_MAX_JOBS", DefaultMaxJobs),
+		AuditLog:     envString("DC2_AUDIT_LOG", defaultAuditPath()),
 	}
 	if cfg.BotToken == "" || cfg.GuildID == "" {
 		return cfg, errors.New("missing DISCORD_BOT_TOKEN or DISCORD_GUILD_ID")
 	}
 	return cfg, nil
+}
+
+func envString(key, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok {
+		return strings.TrimSpace(v)
+	}
+	return fallback
+}
+
+func defaultAuditPath() string {
+	if dir, err := os.UserConfigDir(); err == nil {
+		return filepath.Join(dir, "dc2", "audit.jsonl")
+	}
+	return DefaultAuditLog
+}
+
+func envInt(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
 }
 
 func applyEnv(contents string, overwrite bool) {

@@ -53,6 +53,11 @@ func helpText(goos string) string {
 	b.WriteString("/sys pidinfo `<pid>` – inspect a process\n")
 	b.WriteString("/sys log `<on|off>` – stream logs into this channel\n\n")
 
+	b.WriteString("**Jobs**\n")
+	b.WriteString("/jobs list – recent jobs\n")
+	b.WriteString("/jobs show `<id>` – job output\n")
+	b.WriteString("/jobs kill `<id>` – cancel a running job\n\n")
+
 	if goos == "windows" {
 		b.WriteString("**Windows**\n")
 		b.WriteString("/win sec – firewall and Defender status\n")
@@ -62,7 +67,8 @@ func helpText(goos string) string {
 	}
 
 	b.WriteString("**Client**\n")
-	b.WriteString("/dev restart – restart this client process\n\n")
+	b.WriteString("/dev restart – restart this client process\n")
+	b.WriteString("/dev info – build and runtime information\n\n")
 
 	b.WriteString("**Emoji commands**\n")
 	b.WriteString("📸 screenshot · 📷 camera · 🎙 10s mic\n")

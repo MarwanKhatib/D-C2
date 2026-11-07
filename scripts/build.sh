@@ -34,11 +34,16 @@ fi
 mkdir -p "$OUT"
 rm -f "$OUT"/SHA256SUMS
 
+VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+BUILD_DATE="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+LDFLAGS="-s -w -X discord-c2/internal/version.Version=${VERSION} -X discord-c2/internal/version.Commit=${COMMIT} -X discord-c2/internal/version.Date=${BUILD_DATE}"
+
 build() {
   local goos="$1" goarch="$2" name="$3"
   echo "[build] ${goos}/${goarch} -> ${OUT}/${name}"
   CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-    "$GO" build -trimpath "${tag_flag[@]}" -ldflags "-s -w" -o "${OUT}/${name}" .
+    "$GO" build -trimpath "${tag_flag[@]}" -ldflags "$LDFLAGS" -o "${OUT}/${name}" .
   ( cd "$OUT" && sha256sum "$name" >> SHA256SUMS )
 }
 

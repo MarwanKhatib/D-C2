@@ -13,8 +13,10 @@ import (
 	"strings"
 	"syscall"
 
+	"discord-c2/internal/audit"
 	"discord-c2/internal/commands"
 	"discord-c2/internal/config"
+	"discord-c2/internal/jobs"
 	"discord-c2/internal/logstream"
 	"discord-c2/internal/media"
 	"discord-c2/internal/winsec"
@@ -29,6 +31,8 @@ var (
 	guildID string
 	// allowedUsers, when non-empty, restricts control to these Discord user IDs.
 	allowedUsers map[string]bool
+	// jobManager owns asynchronous command execution for this process.
+	jobManager *jobs.Manager
 )
 
 func userAllowed(id string) bool {
@@ -45,6 +49,15 @@ func Run(cfg config.Config) error {
 		log.Printf("warning: DISCORD_ALLOWED_USERS is empty; any guild member in the device channel can control this host")
 	}
 
+	auditLog, err := audit.Open(cfg.AuditLog)
+	if err != nil {
+		log.Printf("audit disabled: %v", err)
+		auditLog = nil
+	}
+	defer auditLog.Close()
+	jobManager = jobs.New(cfg.MaxJobs, cfg.JobTimeout, cfg.MaxOutput, auditLog)
+	commands.SetJobs(jobManager)
+
 	dg, err := discordgo.New("Bot " + cfg.BotToken)
 	if err != nil {
 		return fmt.Errorf("create Discord session: %w", err)
@@ -59,6 +72,15 @@ func Run(cfg config.Config) error {
 	if err := dg.Open(); err != nil {
 		return fmt.Errorf("open Discord session: %w", err)
 	}
+
+	jobManager.SetNotifier(func(j jobs.Job) {
+		for _, chunk := range jobs.ResultChunks(j, 1700) {
+			if _, err := dg.ChannelMessageSend(j.ChannelID, chunk); err != nil {
+				log.Printf("failed to deliver job %s result: %v", j.ID, err)
+				return
+			}
+		}
+	})
 
 	log.SetOutput(&logstream.Writer{Base: os.Stdout})
 

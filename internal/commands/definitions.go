@@ -41,6 +41,7 @@ func Definitions(goos string) []*discordgo.ApplicationCommand {
 		mediaCommand(),
 		fsCommand(),
 		sysCommand(),
+		jobsCommand(),
 		devCommand(),
 	}
 	if goos == "windows" {
@@ -150,6 +151,23 @@ func devCommand() *discordgo.ApplicationCommand {
 		Description: "Client process control",
 		Options: []*discordgo.ApplicationCommandOption{
 			sub("restart", "Restart this client process"),
+			sub("info", "Show build and runtime information"),
+		},
+	}
+}
+
+func jobsCommand() *discordgo.ApplicationCommand {
+	return &discordgo.ApplicationCommand{
+		Name:        "jobs",
+		Description: "Inspect and control command jobs",
+		Options: []*discordgo.ApplicationCommandOption{
+			sub("list", "List recent jobs"),
+			sub("show", "Show a job and its output",
+				optString("id", "Job ID", true, nil),
+			),
+			sub("kill", "Cancel a running job",
+				optString("id", "Job ID", true, nil),
+			),
 		},
 	}
 }

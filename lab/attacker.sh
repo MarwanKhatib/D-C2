@@ -67,9 +67,10 @@ run_cmd() {
 
   for _ in $(seq 1 "$REPLY_TIMEOUT"); do
     sleep 1
+    # Command output is posted asynchronously as a fenced block; the immediate
+    # reply only carries the job ID.
     reply=$(api "${API}/channels/${channel_id}/messages?after=${msg_id}&limit=50" \
-      | jq -r --arg mid "$msg_id" \
-        '[.[] | select(.message_reference.message_id == $mid) | .content] | join("\n")')
+      | jq -r '[.[] | select(.author.bot == true) | select(.content | contains("```text")) | .content] | join("\n")')
     [[ -n "$reply" ]] && break
   done
 
