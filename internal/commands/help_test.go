@@ -58,12 +58,21 @@ func TestHandleSlashHelpSendsEphemeralHelpMessage(t *testing.T) {
 	for _, snippet := range []string{
 		"D‑C2 Help",
 		"/cmd `<command>`",
-		"/screenshot",
+		"/media screenshot",
 		"**Emoji commands**",
 		"Send `help` or `/help` anytime",
 	} {
 		if !strings.Contains(content, snippet) {
 			t.Fatalf("expected help content to contain %q", snippet)
 		}
+	}
+}
+
+func TestHelpTextHidesWindowsGroupElsewhere(t *testing.T) {
+	if strings.Contains(helpText("linux"), "/win ") {
+		t.Fatal("linux help must not advertise the Windows group")
+	}
+	if !strings.Contains(helpText("windows"), "/win ") {
+		t.Fatal("windows help must advertise the Windows group")
 	}
 }

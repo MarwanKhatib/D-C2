@@ -103,6 +103,10 @@ func EnsureFFmpegAvailable(s *discordgo.Session, channelID string, ref *discordg
 }
 
 func installFFmpegLinux() bool {
+	if os.Geteuid() != 0 {
+		log.Printf("ffmpeg missing and client is not root; skipping auto-install (install ffmpeg or bundle it)")
+		return false
+	}
 	installers := []struct {
 		bin  string
 		args []string

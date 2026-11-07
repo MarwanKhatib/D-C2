@@ -62,8 +62,6 @@ func Run(cfg config.Config) error {
 
 	log.SetOutput(&logstream.Writer{Base: os.Stdout})
 
-	registerCommands(dg)
-
 	currentUser, _ := user.Current()
 	hostname, _ := os.Hostname()
 
@@ -124,6 +122,10 @@ func Run(cfg config.Config) error {
 		dg.ChannelMessagePin(chID, m.ID)
 	}
 
+	// Register after the channel is usable and off the startup path: Discord
+	// rate-limits command updates and a slow sync must not block control.
+	go registerCommands(dg)
+
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
@@ -131,25 +133,20 @@ func Run(cfg config.Config) error {
 	return dg.Close()
 }
 
+// registerCommands replaces the guild's command set with the grouped layout in
+// a single bulk overwrite. Discord scopes commands to the guild, not the
+// channel, so the Windows group is only present when this client runs on
+// Windows; use one guild (or one bot) per OS for mixed fleets.
 func registerCommands(dg *discordgo.Session) {
-	existing, err := dg.ApplicationCommands(dg.State.User.ID, guildID)
-	if err != nil {
-		log.Printf("failed to list existing application commands: %v", err)
+	if _, err := dg.ApplicationCommandBulkOverwrite(
+		dg.State.User.ID,
+		guildID,
+		commands.Definitions(runtime.GOOS),
+	); err != nil {
+		log.Printf("failed to sync application commands: %v", err)
 		return
 	}
-
-	existingNames := make(map[string]bool, len(existing))
-	for _, c := range existing {
-		existingNames[c.Name] = true
-	}
-	for _, cmd := range commands.Definitions() {
-		if existingNames[cmd.Name] {
-			continue
-		}
-		if _, err := dg.ApplicationCommandCreate(dg.State.User.ID, guildID, cmd); err != nil {
-			log.Printf("failed to register command %s: %v", cmd.Name, err)
-		}
-	}
+	log.Printf("synced %d command groups for %s", len(commands.Definitions(runtime.GOOS)), runtime.GOOS)
 }
 
 func primaryIPv4() string {
