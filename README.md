@@ -54,9 +54,26 @@ From that device channel you can:
 
 ---
 
+## 1.1 Quick start
+
+1. **Configure** — `cp .env.example .env && chmod 600 .env`, then set
+   `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, and `DISCORD_ALLOWED_USERS`.
+2. **Build** — `scripts/build.sh linux` (or `windows`, `darwin`, `all`).
+3. **Run** — `./dist/dc2-linux-amd64` from the directory containing `.env`.
+4. **Control** — in the new `#hostname-username` channel use `/help`, `/cmd`,
+   `/media`, `/fs`, `/sys`, `/win`, `/dev`.
+5. **Deploy** — `sudo scripts/install-linux.sh dist/dc2-linux-amd64 .env`
+   (Windows: `scripts/install-windows.ps1`).
+
+Full paths: [server setup](docs/SERVER.md) → [build](docs/BUILD.md) →
+[install](docs/INSTALL.md) → [control](docs/CONTROL.md). Lab:
+[docs/LAB.md](docs/LAB.md).
+
+---
+
 ## 2. Project Structure Map
 
-Detailed guides: [Configuration](docs/CONFIGURATION.md), [Control reference](docs/CONTROL.md), [Two-container lab](docs/LAB.md), [Security](docs/SECURITY.md), [Skills used](docs/SKILLS.md), [Architecture](docs/ARCHITECTURE.md).
+Detailed guides: [Configuration](docs/CONFIGURATION.md), [Control reference](docs/CONTROL.md), [Server setup](docs/SERVER.md), [Build artifacts](docs/BUILD.md), [Install on a target](docs/INSTALL.md), [Stager](docs/STAGER.md), [Two-container lab](docs/LAB.md), [Security](docs/SECURITY.md), [Skills used](docs/SKILLS.md), [Architecture](docs/ARCHITECTURE.md).
 
 Repository root:
 
@@ -94,8 +111,27 @@ discord-c2/
 │   ├── process/process.go      # self re-exec (restart)
 │   ├── shell/shell.go          # command execution + output chunking
 │   └── winsec/winsec.go        # firewall/Defender status and controls
+├── scripts/
+│   ├── build.sh                # cross-compile artifacts + SHA256SUMS
+│   ├── install-linux.sh        # systemd install
+│   └── install-windows.ps1     # ProgramData install + logon task
+├── lab/
+│   ├── run.sh                  # build and run target + attacker containers
+│   └── attacker.sh             # webhook-based operator simulator
+├── deploy/
+│   ├── Dockerfile.target
+│   └── Dockerfile.attacker
 ├── docs/
-│   └── ARCHITECTURE.md         # package boundaries and data flow
+│   ├── ARCHITECTURE.md         # package boundaries and data flow
+│   ├── SERVER.md               # Discord control plane setup
+│   ├── BUILD.md                # artifact generation and tags
+│   ├── INSTALL.md              # Linux/Windows/macOS deployment
+│   ├── STAGER.md               # bootstrap installer patterns
+│   ├── CONFIGURATION.md        # env vars, precedence, secret storage
+│   ├── CONTROL.md              # commands, shortcuts, access model
+│   ├── LAB.md                  # two-container lab
+│   ├── SECURITY.md             # audit results and hardening
+│   └── SKILLS.md               # audit skills and sources
 ├── .gitignore
 └── README.md
 ```

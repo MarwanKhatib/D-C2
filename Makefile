@@ -1,7 +1,7 @@
 GO ?= go
 BIN ?= dc2-client
 
-.PHONY: build test vet fmt check cross-windows envembed
+.PHONY: build test vet fmt check cross-windows envembed dist
 
 build:
 	$(GO) build -o $(BIN) .
@@ -23,3 +23,7 @@ cross-windows:
 # Requires a .env file in the repository root.
 envembed:
 	$(GO) build -tags envembed -ldflags "-s -w" -o $(BIN) .
+
+# Cross-compiled release artifacts in dist/ with SHA256SUMS.
+dist:
+	./scripts/build.sh all

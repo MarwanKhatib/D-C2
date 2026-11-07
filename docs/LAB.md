@@ -142,6 +142,7 @@ docker rmi dc2-target:lab dc2-attacker:lab
 | No reply | Message content intent missing, or allowlist set | Enable the intent; leave `DISCORD_ALLOWED_USERS` empty. |
 | `Cannot connect to the Docker daemon` | User not in `docker` group | `sudo usermod -aG docker $USER` then re-login. |
 | Target exits immediately | Missing `.env` values | `docker logs dc2-target` shows the config error. |
+| Slash command shows "The application did not respond" | No client is running for that channel, or the lab has already torn down the target | Keep the target running; `lab/run.sh` removes it after the attacker finishes. |
 
 ## 7. Safety
 
