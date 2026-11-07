@@ -23,11 +23,13 @@ git push origin v0.3.0
 
 Pushing the tag runs `.github/workflows/release.yml`, which:
 
-1. runs `go test -race ./...`;
-2. builds `dist/` with `scripts/build.sh all`, injecting version, commit, and
+1. runs `staticcheck`, `govulncheck`, and `gosec` (the release is blocked if any
+   fail);
+2. runs `go test -race ./...`;
+3. builds `dist/` with `scripts/build.sh all`, injecting version, commit, and
    build date;
-3. verifies `dist/SHA256SUMS`;
-4. creates a GitHub Release with the artifacts and generated notes.
+4. verifies `dist/SHA256SUMS`;
+5. creates a GitHub Release with the artifacts and generated notes.
 
 ## 4. Verify a release
 
