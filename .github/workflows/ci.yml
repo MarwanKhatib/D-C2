@@ -1,0 +1,67 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+
+      - name: vet
+        run: go vet ./...
+
+      - name: build
+        run: go build ./...
+
+      - name: test (race)
+        run: go test -race -count=1 ./...
+
+      - name: cross-compile
+        run: |
+          GOOS=windows GOARCH=amd64 go build -o /tmp/dc2.exe .
+          GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/dc2-mac .
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+          "$(go env GOPATH)/bin/staticcheck" ./...
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+      # G104: non-actionable Discord API error returns.
+      # G204/G304/G702: operator-supplied commands and paths are the product.
+      # G706: operator input may reach local logs; /log is opt-in.
+      # These classes are reviewed manually; every other rule fails the build.
+      - name: gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.30.0
+          "$(go env GOPATH)/bin/gosec" -quiet \
+            -exclude=G104,G204,G304,G702,G706 ./...

@@ -1,0 +1,16 @@
+# Target container: runs the D-C2 client as an unprivileged user.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates bash procps iproute2 hostname coreutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --shell /bin/bash --gid operator operator
+
+WORKDIR /app
+COPY bin/dc2-linux /app/dc2-client
+RUN chmod 0755 /app/dc2-client
+
+USER operator
+ENTRYPOINT ["/app/dc2-client"]

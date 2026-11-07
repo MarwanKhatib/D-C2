@@ -1,0 +1,12 @@
+# Attacker container: sends commands to the device channel through a webhook.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates bash curl jq coreutils \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY lab/attacker.sh /usr/local/bin/attacker.sh
+RUN chmod 0755 /usr/local/bin/attacker.sh
+
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/attacker.sh"]
