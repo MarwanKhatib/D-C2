@@ -26,6 +26,8 @@ can execute commands on the host. The primary assets are:
 | HTTP timeouts for attachment transfer | `internal/httpx` |
 | Local JSONL audit trail (job, operator, command, exit, duration) | `internal/audit`, `internal/jobs` |
 | Two-person approval for commands (`DC2_REQUIRE_APPROVAL`) | `internal/approvals`, `internal/commands` |
+| Approval audit events (`approval.request`, `approval.approve`, `approval.deny`) | `internal/commands` |
+| Graceful shutdown cancels running jobs | `internal/bot`, `internal/jobs` |
 | Rate-limited log streaming (5 msg/s, drop summary) | `internal/logstream` |
 | Extracted ffmpeg dir `0700`, binary `0700` | `internal/media/media.go` |
 | Unprivileged, capability-dropped lab container | `deploy/Dockerfile.target`, `lab/run.sh` |

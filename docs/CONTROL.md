@@ -32,7 +32,11 @@ If `DC2_REQUIRE_APPROVAL=true`, commands are not executed immediately. The
 client posts an approval prompt with **Approve**/**Deny** buttons; a second
 operator (listed in `DC2_APPROVERS`, or any allowlisted user when the list is
 empty) must approve. The requester cannot approve their own command. Requests
-expire after 10 minutes.
+expire after 10 minutes. Requests, approvals, and denials are written to the
+audit log.
+
+On shutdown (SIGINT/SIGTERM) the client cancels running jobs and waits up to
+five seconds for them to exit.
 
 Fixed commands (`/fs`, `/sys`, media) stay synchronous and reply inline.
 

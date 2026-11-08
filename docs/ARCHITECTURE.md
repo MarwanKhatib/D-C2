@@ -69,7 +69,9 @@ it retains the last 200 snapshots and calls a notifier when a job finishes.
         └─ notifier → post result chunks to the device channel
 ```
 
-`/jobs list|show|kill` reads and controls the same manager.
+`/jobs list|show|kill` reads and controls the same manager. On shutdown the
+manager cancels running jobs and waits up to five seconds before the Discord
+session closes.
 
 ## Reconnect handling
 

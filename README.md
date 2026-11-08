@@ -794,6 +794,8 @@ A: Downloads are split into parts of `DC2_CHUNK_SIZE` (default 7 MiB) with a man
 
 Recent notable changes:
 
+- Approval requests are audited (`approval.request/approve/deny`); shutdown
+  cancels running jobs and waits up to five seconds.
 - Two-person approval (`DC2_REQUIRE_APPROVAL`, `DC2_APPROVERS`): commands wait
   for an Approve/Deny click from a second operator; requests expire in 10 min.
 - Job history persists to `DC2_JOB_STORE`, so `/jobs list|show` survives restarts.
