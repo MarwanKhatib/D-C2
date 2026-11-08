@@ -117,6 +117,35 @@ func TestConcurrencyLimit(t *testing.T) {
 	}
 }
 
+func TestPersistenceAcrossManagers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.jsonl")
+
+	first, _ := newTestManager(t, 2, 5*time.Second, 4096)
+	if err := first.EnablePersistence(path); err != nil {
+		t.Fatal(err)
+	}
+	job, err := first.Start("operator", "chan", "echo persisted", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, first, job.ID)
+
+	second, _ := newTestManager(t, 2, 5*time.Second, 4096)
+	if err := second.EnablePersistence(path); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := second.Get(job.ID)
+	if !ok {
+		t.Fatal("persisted job not loaded")
+	}
+	if got.Status != StatusDone || !strings.Contains(got.Output, "persisted") {
+		t.Fatalf("unexpected persisted job: %+v", got)
+	}
+	if len(second.List(10)) == 0 {
+		t.Fatal("persisted job missing from list")
+	}
+}
+
 func TestNotifierReceivesFinishedJob(t *testing.T) {
 	m, _ := newTestManager(t, 2, 5*time.Second, 4096)
 	ch := make(chan Job, 1)

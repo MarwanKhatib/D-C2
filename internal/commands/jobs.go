@@ -26,6 +26,10 @@ func startJob(s *discordgo.Session, i *discordgo.InteractionCreate, operator, ch
 		respondEphemeral(s, i, "Job manager is not configured.")
 		return
 	}
+	if requireApproval {
+		startApproval(s, i, operator, channelID, cmd)
+		return
+	}
 	job, err := jobManager.Start(operator, channelID, cmd, 0)
 	if err != nil {
 		respondEphemeral(s, i, "❌ "+err.Error())

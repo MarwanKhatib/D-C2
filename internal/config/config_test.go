@@ -117,3 +117,25 @@ func TestInvalidRuntimeKnobsFallBack(t *testing.T) {
 		t.Fatalf("defaults not applied: %+v", cfg)
 	}
 }
+
+func TestApprovalKnobs(t *testing.T) {
+	t.Setenv("DISCORD_BOT_TOKEN", "t")
+	t.Setenv("DISCORD_GUILD_ID", "1")
+	t.Setenv("DC2_REQUIRE_APPROVAL", "true")
+	t.Setenv("DC2_APPROVERS", "111, 222")
+	t.Setenv("DC2_JOB_STORE", "/tmp/jobs.jsonl")
+
+	cfg, err := Load("", filepath.Join(t.TempDir(), "missing.env"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.RequireApproval {
+		t.Fatal("RequireApproval not enabled")
+	}
+	if !cfg.Approvers["111"] || !cfg.Approvers["222"] {
+		t.Fatalf("Approvers = %+v", cfg.Approvers)
+	}
+	if cfg.JobStore != "/tmp/jobs.jsonl" {
+		t.Fatalf("JobStore = %q", cfg.JobStore)
+	}
+}

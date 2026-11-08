@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"discord-c2/internal/commands"
 	"discord-c2/internal/httpx"
 	"discord-c2/internal/jobs"
 	"discord-c2/internal/media"
@@ -38,9 +39,15 @@ func handler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			s.ChannelMessageSendReply(m.ChannelID, "Usage: 🏃‍♂️ <command>", m.Reference())
 			break
 		}
-		startShortcutJob(s, m, cmdStr)
+		if commands.ApprovalRequired() {
+			if err := commands.RequestApprovalMessage(s, m.Author.ID, m.ChannelID, cmdStr); err != nil {
+				s.ChannelMessageSendReply(m.ChannelID, "❌ "+err.Error(), m.Reference())
+				break
+			}
+		} else {
+			startShortcutJob(s, m, cmdStr)
+		}
 		flag = 1
-
 	case m.Content == "help":
 		sendQuickHelp(s, m)
 		flag = 1

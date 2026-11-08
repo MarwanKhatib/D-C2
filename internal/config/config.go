@@ -38,8 +38,14 @@ type Config struct {
 	MaxJobs int
 	// AuditLog is the JSONL audit path. Empty disables auditing.
 	AuditLog string
+	// JobStore persists finished jobs as JSON lines. Empty disables it.
+	JobStore string
 	// ChunkSize is the split size for downloads larger than Discord's limit.
 	ChunkSize int64
+	// RequireApproval requires a second operator to approve commands.
+	RequireApproval bool
+	// Approvers are the user IDs allowed to approve commands.
+	Approvers map[string]bool
 }
 
 // Allowed reports whether userID may control this device. An empty allowlist
@@ -61,14 +67,17 @@ func Load(embedded, path string) (Config, error) {
 	}
 
 	cfg := Config{
-		BotToken:     os.Getenv("DISCORD_BOT_TOKEN"),
-		GuildID:      os.Getenv("DISCORD_GUILD_ID"),
-		AllowedUsers: parseAllowedUsers(os.Getenv("DISCORD_ALLOWED_USERS")),
-		JobTimeout:   envDuration("DC2_JOB_TIMEOUT", DefaultJobTimeout),
-		MaxOutput:    envInt("DC2_MAX_OUTPUT", DefaultMaxOutput),
-		MaxJobs:      envInt("DC2_MAX_JOBS", DefaultMaxJobs),
-		AuditLog:     envString("DC2_AUDIT_LOG", defaultAuditPath()),
-		ChunkSize:    int64(envInt("DC2_CHUNK_SIZE", DefaultChunkSize)),
+		BotToken:        os.Getenv("DISCORD_BOT_TOKEN"),
+		GuildID:         os.Getenv("DISCORD_GUILD_ID"),
+		AllowedUsers:    parseAllowedUsers(os.Getenv("DISCORD_ALLOWED_USERS")),
+		RequireApproval: envBool("DC2_REQUIRE_APPROVAL"),
+		Approvers:       parseAllowedUsers(os.Getenv("DC2_APPROVERS")),
+		JobTimeout:      envDuration("DC2_JOB_TIMEOUT", DefaultJobTimeout),
+		MaxOutput:       envInt("DC2_MAX_OUTPUT", DefaultMaxOutput),
+		MaxJobs:         envInt("DC2_MAX_JOBS", DefaultMaxJobs),
+		AuditLog:        envString("DC2_AUDIT_LOG", defaultStatePath("audit.jsonl")),
+		JobStore:        envString("DC2_JOB_STORE", defaultStatePath("jobs.jsonl")),
+		ChunkSize:       int64(envInt("DC2_CHUNK_SIZE", DefaultChunkSize)),
 	}
 	if cfg.BotToken == "" || cfg.GuildID == "" {
 		return cfg, errors.New("missing DISCORD_BOT_TOKEN or DISCORD_GUILD_ID")
@@ -83,11 +92,20 @@ func envString(key, fallback string) string {
 	return fallback
 }
 
-func defaultAuditPath() string {
+func defaultStatePath(name string) string {
 	if dir, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(dir, "dc2", "audit.jsonl")
+		return filepath.Join(dir, "dc2", name)
 	}
-	return DefaultAuditLog
+	return name
+}
+
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func envInt(key string, fallback int) int {

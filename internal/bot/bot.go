@@ -79,7 +79,14 @@ func Run(cfg config.Config) error {
 	}
 	defer auditLog.Close()
 	jobManager = jobs.New(cfg.MaxJobs, cfg.JobTimeout, cfg.MaxOutput, auditLog)
+	if err := jobManager.EnablePersistence(cfg.JobStore); err != nil {
+		log.Printf("job persistence disabled: %v", err)
+	}
 	commands.SetJobs(jobManager)
+	commands.ConfigureApprovals(cfg.RequireApproval, cfg.Approvers)
+	if cfg.RequireApproval {
+		log.Printf("two-person approval enabled (%d approver(s))", len(cfg.Approvers))
+	}
 	transferChunkSize = cfg.ChunkSize
 	commands.SetTransferChunkSize(cfg.ChunkSize)
 

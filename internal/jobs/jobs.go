@@ -70,6 +70,7 @@ type Manager struct {
 	maxOutput int
 	audit     *audit.Logger
 	notify    func(Job)
+	store     *jobStore
 }
 
 // New creates a manager. maxJobs/maxOutput are clamped to sane minimums.
@@ -90,6 +91,31 @@ func New(maxJobs int, timeout time.Duration, maxOutput int, log *audit.Logger) *
 		maxOutput: maxOutput,
 		audit:     log,
 	}
+}
+
+// EnablePersistence loads recent finished jobs and appends new ones to path.
+func (m *Manager) EnablePersistence(path string) error {
+	if path == "" {
+		return nil
+	}
+	store := &jobStore{path: path}
+	loaded := store.load(maxStoreJobs)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.store = store
+	for _, j := range loaded {
+		if j.Status == StatusRunning {
+			continue
+		}
+		if _, exists := m.jobs[j.ID]; exists {
+			continue
+		}
+		m.jobs[j.ID] = &jobState{job: j}
+		m.order = append(m.order, j.ID)
+	}
+	m.pruneLocked()
+	return nil
 }
 
 // SetNotifier registers a callback invoked once per finished job.
@@ -205,6 +231,7 @@ func (m *Manager) run(ctx context.Context, id, command string, timeout time.Dura
 	if m.notify != nil {
 		m.notify(snapshot)
 	}
+	m.store.append(snapshot)
 }
 
 // cancels is unused; cancellation lives in jobState.
