@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -129,6 +130,18 @@ func TestPersistenceAcrossManagers(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, first, job.ID)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		data, err := os.ReadFile(path)
+		if err == nil && strings.Contains(string(data), job.ID) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("job was not persisted to disk")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	second, _ := newTestManager(t, 2, 5*time.Second, 4096)
 	if err := second.EnablePersistence(path); err != nil {

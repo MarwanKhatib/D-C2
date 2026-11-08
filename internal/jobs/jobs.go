@@ -228,10 +228,10 @@ func (m *Manager) run(ctx context.Context, id, command string, timeout time.Dura
 		OutputBytes: snapshot.OutputBytes,
 	})
 
+	m.store.append(snapshot)
 	if m.notify != nil {
 		m.notify(snapshot)
 	}
-	m.store.append(snapshot)
 }
 
 // cancels is unused; cancellation lives in jobState.
