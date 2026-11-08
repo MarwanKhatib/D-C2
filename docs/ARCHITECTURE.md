@@ -32,6 +32,7 @@ main
 | `internal/audit` | JSONL audit trail | stdlib |
 | `internal/transfer` | chunked downloads and manifests | stdlib, `discordgo` |
 | `internal/preflight` | `--check` validation | `config`, `audit`, `transfer` |
+| `internal/approvals` | two-person approval requests | stdlib |
 | `internal/version` | build metadata | stdlib |
 | `internal/shell` | command execution and output chunking | stdlib, `discordgo` |
 | `internal/media` | capture/recording, ffmpeg discovery | stdlib, `discordgo`, `screenshot` |

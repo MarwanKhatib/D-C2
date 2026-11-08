@@ -25,7 +25,14 @@ Arbitrary commands (`/cmd`, the 🏃‍♂️ shortcut, and the quick-info butto
 
 Defaults: 120 s timeout, 200 KB output, 8 concurrent jobs. Configure with
 `DC2_JOB_TIMEOUT`, `DC2_MAX_OUTPUT`, and `DC2_MAX_JOBS`. Every job is written to
-the local audit log (`DC2_AUDIT_LOG`).
+the local audit log (`DC2_AUDIT_LOG`) and the job store (`DC2_JOB_STORE`), so
+`/jobs` survives restarts.
+
+If `DC2_REQUIRE_APPROVAL=true`, commands are not executed immediately. The
+client posts an approval prompt with **Approve**/**Deny** buttons; a second
+operator (listed in `DC2_APPROVERS`, or any allowlisted user when the list is
+empty) must approve. The requester cannot approve their own command. Requests
+expire after 10 minutes.
 
 Fixed commands (`/fs`, `/sys`, media) stay synchronous and reply inline.
 
@@ -97,8 +104,8 @@ The quick-help message exposes buttons for `whoami`, `id`, `hostname`, `ip info`
   separate message, so large files are rate-limited by Discord).
 - Uploads from Discord remain bounded by Discord's own attachment limit.
 - Only one segmented recording can run at a time (`media.videoState`).
-- Log streaming forwards each log line as a separate message; leave it off
-  outside troubleshooting to avoid rate limits.
+- Log streaming is queued and rate-limited to 5 messages per second; excess
+  lines are dropped and summarized. Leave it off outside troubleshooting.
 
 ## 7. Non-Discord control (lab)
 

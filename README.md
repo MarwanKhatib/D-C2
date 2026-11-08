@@ -109,6 +109,7 @@ discord-c2/
 │   │   └── help_test.go        # unit test for the help responder
 │   ├── config/config.go        # .env loading + Config type
 │   ├── audit/audit.go          # JSONL audit trail
+│   ├── approvals/approvals.go  # two-person approval requests
 │   ├── jobs/jobs.go            # async execution, timeouts, cancellation
 │   ├── jobs/render.go          # job ack/result formatting
 │   ├── version/version.go      # build metadata (-ldflags)
@@ -164,7 +165,8 @@ discord-c2/
 - `internal/commands` — one file per command family plus a router. Handlers only
   format Discord responses and delegate work to leaf packages.
 - `internal/jobs` — asynchronous execution: timeouts, concurrency limit, bounded
-  output, cancellation, and result formatting.
+  output, cancellation, persistence, and result formatting.
+- `internal/approvals` — two-person approval requests for commands.
 - `internal/audit` — JSON-lines audit trail for command lifecycle events.
 - `internal/version` — build metadata injected with `-ldflags`.
 - `internal/shell` — synchronous runner for fixed info commands; chunks output
@@ -792,6 +794,12 @@ A: Downloads are split into parts of `DC2_CHUNK_SIZE` (default 7 MiB) with a man
 
 Recent notable changes:
 
+- Two-person approval (`DC2_REQUIRE_APPROVAL`, `DC2_APPROVERS`): commands wait
+  for an Approve/Deny click from a second operator; requests expire in 10 min.
+- Job history persists to `DC2_JOB_STORE`, so `/jobs list|show` survives restarts.
+- Log streaming is rate-limited to 5 msg/s with a drop summary.
+- Releases include a CycloneDX SBOM; Windows signing runs when the signing
+  secrets are configured.
 - Chunked downloads: files over `DC2_CHUNK_SIZE` (7 MiB default) are split into
   parts with a `manifest.json` and SHA-256 hashes.
 - `--check` preflight validates token, guild, permissions, audit path, ffmpeg,

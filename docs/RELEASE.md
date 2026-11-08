@@ -31,6 +31,28 @@ Pushing the tag runs `.github/workflows/release.yml`, which:
 4. verifies `dist/SHA256SUMS`;
 5. creates a GitHub Release with the artifacts and generated notes.
 
+## 3.1 SBOM and Windows signing
+
+Every release includes `dist/sbom.cdx.json` (CycloneDX, generated with
+`cyclonedx-gomod v1.12.0` from the locked module graph).
+
+Windows signing is optional and secret-driven. Add these repository secrets:
+
+| Secret | Value |
+|---|---|
+| `WINDOWS_SIGNING_PFX_BASE64` | base64 of a `.pfx` code-signing certificate |
+| `WINDOWS_SIGNING_PFX_PASSWORD` | the `.pfx` password |
+
+When `WINDOWS_SIGNING_PFX_BASE64` is set, CI installs `osslsigncode`, signs
+`dc2-windows-amd64.exe`, and regenerates `SHA256SUMS`. Without the secret the
+workflow skips signing and publishes the unsigned binary.
+
+Verify a signed build:
+
+```powershell
+Get-AuthenticodeSignature .\dc2-windows-amd64.exe
+```
+
 ## 4. Verify a release
 
 ```bash
@@ -38,8 +60,8 @@ sha256sum -c SHA256SUMS
 ./dist/dc2-linux-amd64   # /dev info shows the tag and commit
 ```
 
-Check the release assets: linux amd64/arm64, windows amd64, darwin arm64, and
-`SHA256SUMS`.
+Check the release assets: linux amd64/arm64, windows amd64, darwin arm64,
+`sbom.cdx.json`, and `SHA256SUMS`.
 
 ## 5. Rollback
 

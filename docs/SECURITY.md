@@ -25,6 +25,8 @@ can execute commands on the host. The primary assets are:
 | Token never logged | `internal/config`, startup logs |
 | HTTP timeouts for attachment transfer | `internal/httpx` |
 | Local JSONL audit trail (job, operator, command, exit, duration) | `internal/audit`, `internal/jobs` |
+| Two-person approval for commands (`DC2_REQUIRE_APPROVAL`) | `internal/approvals`, `internal/commands` |
+| Rate-limited log streaming (5 msg/s, drop summary) | `internal/logstream` |
 | Extracted ffmpeg dir `0700`, binary `0700` | `internal/media/media.go` |
 | Unprivileged, capability-dropped lab container | `deploy/Dockerfile.target`, `lab/run.sh` |
 | Dependency upgrades (no known reachable CVEs) | `go.mod` |
