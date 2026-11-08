@@ -88,7 +88,7 @@ jobs:
           sha256sum -c SHA256SUMS
 
       - name: attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/dc2-linux-amd64
