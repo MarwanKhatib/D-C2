@@ -67,13 +67,17 @@ them.
 ## 4. Supply chain
 
 - **Dependabot** opens weekly grouped PRs for Go modules and GitHub Actions.
-- **Dependency review** blocks PRs that introduce high-severity vulnerable
-  dependencies.
+- **Dependabot security updates** and **vulnerability alerts** are enabled, so
+  advisories produce automated fix PRs.
+- **Dependency review** would require Dependency Graph to be enabled in
+  *Settings → Code security*; until then, `govulncheck` runs on every PR and push
+  through the `security` job.
 - **Release provenance**: every tagged release attests its binaries and SBOM
   with `actions/attest-build-provenance`; verify with
-  `gh attestation verify <file> --repo MarwanKhatib/D-C2`.
+  `gh attestation verify <file> --repo MarwanKhatib/D-C2` (gh ≥ 2.49).
 - **Branch protection** on `main`: required CI checks, no force-push, no branch
   deletion.
+- **Secret scanning + push protection** enabled on the repository.
 - **SBOM**: CycloneDX file attached to every release.
 
 ## 5. Residual risks
