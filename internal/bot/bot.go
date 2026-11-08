@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"discord-c2/internal/audit"
 	"discord-c2/internal/commands"
@@ -83,7 +84,7 @@ func Run(cfg config.Config) error {
 		log.Printf("job persistence disabled: %v", err)
 	}
 	commands.SetJobs(jobManager)
-	commands.ConfigureApprovals(cfg.RequireApproval, cfg.Approvers)
+	commands.ConfigureApprovals(cfg.RequireApproval, cfg.Approvers, auditLog)
 	if cfg.RequireApproval {
 		log.Printf("two-person approval enabled (%d approver(s))", len(cfg.Approvers))
 	}
@@ -188,6 +189,7 @@ func Run(cfg config.Config) error {
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
+	jobManager.Shutdown(5 * time.Second)
 	return dg.Close()
 }
 

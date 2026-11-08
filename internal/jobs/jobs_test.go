@@ -159,6 +159,29 @@ func TestPersistenceAcrossManagers(t *testing.T) {
 	}
 }
 
+func TestShutdownCancelsRunningJobs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sleep")
+	}
+	m, _ := newTestManager(t, 4, 30*time.Second, 4096)
+	job, err := m.Start("operator", "chan", "sleep 30", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Shutdown(3 * time.Second)
+
+	got, ok := m.Get(job.ID)
+	if !ok {
+		t.Fatal("job missing after shutdown")
+	}
+	if got.Status == StatusRunning {
+		t.Fatalf("job still running after shutdown: %+v", got)
+	}
+	if m.Running() != 0 {
+		t.Fatalf("running count = %d", m.Running())
+	}
+}
+
 func TestNotifierReceivesFinishedJob(t *testing.T) {
 	m, _ := newTestManager(t, 2, 5*time.Second, 4096)
 	ch := make(chan Job, 1)

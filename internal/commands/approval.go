@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"discord-c2/internal/approvals"
+	"discord-c2/internal/audit"
 	"discord-c2/internal/jobs"
 
 	"github.com/bwmarrin/discordgo"
@@ -23,12 +24,14 @@ var (
 	approvalMgr     *approvals.Manager
 	requireApproval bool
 	approvers       map[string]bool
+	approvalAudit   *audit.Logger
 )
 
 // ConfigureApprovals enables the two-person rule when required is true.
-func ConfigureApprovals(required bool, allowed map[string]bool) {
+func ConfigureApprovals(required bool, allowed map[string]bool, log *audit.Logger) {
 	requireApproval = required
 	approvers = allowed
+	approvalAudit = log
 	if required {
 		approvalMgr = approvals.New(approvalTTL)
 	}
@@ -43,6 +46,7 @@ func startApproval(s *discordgo.Session, i *discordgo.InteractionCreate, operato
 		return
 	}
 	req := approvalMgr.Create(cmd, operator, channelID)
+	auditApproval("approval.request", req, operator, "pending")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -58,11 +62,23 @@ func RequestApprovalMessage(s *discordgo.Session, operator, channelID, cmd strin
 		return fmt.Errorf("approval manager is not configured")
 	}
 	req := approvalMgr.Create(cmd, operator, channelID)
+	auditApproval("approval.request", req, operator, "pending")
 	_, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content:    approvalText(req),
 		Components: approvalComponents(req),
 	})
 	return err
+}
+
+func auditApproval(event string, req approvals.Request, actor, status string) {
+	approvalAudit.Write(audit.Event{ // nil-safe
+		Event:     event,
+		JobID:     req.ID,
+		Operator:  actor,
+		ChannelID: req.ChannelID,
+		Command:   req.Command,
+		Status:    status,
+	})
 }
 
 func approvalText(req approvals.Request) string {
@@ -116,11 +132,13 @@ func handleApproval(s *discordgo.Session, i *discordgo.InteractionCreate, data d
 	}
 
 	if !approve {
+		auditApproval("approval.deny", req, approver, "denied")
 		respondEphemeral(s, i, "⛔ denied by <@"+approver+">")
 		s.ChannelMessageSend(req.ChannelID, "⛔ command denied: `"+req.Command+"`")
 		return
 	}
 
+	auditApproval("approval.approve", req, approver, "approved")
 	job, err := jobManager.Start(req.Requester, req.ChannelID, req.Command, 0)
 	if err != nil {
 		respondEphemeral(s, i, "❌ "+err.Error())

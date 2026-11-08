@@ -71,6 +71,7 @@ type Manager struct {
 	audit     *audit.Logger
 	notify    func(Job)
 	store     *jobStore
+	wg        sync.WaitGroup
 }
 
 // New creates a manager. maxJobs/maxOutput are clamped to sane minimums.
@@ -158,11 +159,13 @@ func (m *Manager) Start(operator, channelID, command string, timeout time.Durati
 		Status:    string(StatusRunning),
 	})
 
+	m.wg.Add(1)
 	go m.run(ctx, j.ID, command, timeout)
 	return j, nil
 }
 
 func (m *Manager) run(ctx context.Context, id, command string, timeout time.Duration) {
+	defer m.wg.Done()
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.CommandContext(ctx, "C:\\Windows\\System32\\cmd.exe", "/c", command)
@@ -288,6 +291,30 @@ func (m *Manager) Kill(id string) bool {
 	state.cancel()
 	m.mu.Unlock()
 	return true
+}
+
+// Shutdown cancels running jobs and waits up to timeout for them to exit.
+func (m *Manager) Shutdown(timeout time.Duration) {
+	m.mu.Lock()
+	for _, st := range m.jobs {
+		if st.job.Status == StatusRunning && st.cancel != nil {
+			st.cancel()
+		}
+	}
+	m.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
 }
 
 // Running returns the number of active jobs.
