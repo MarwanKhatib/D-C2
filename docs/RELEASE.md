@@ -53,6 +53,13 @@ Verify a signed build:
 Get-AuthenticodeSignature .\dc2-windows-amd64.exe
 ```
 
+Every release also gets a **build provenance attestation** for the binaries and
+SBOM. Verify one:
+
+```bash
+gh attestation verify dc2-linux-amd64 --repo MarwanKhatib/D-C2
+```
+
 ## 4. Verify a release
 
 ```bash

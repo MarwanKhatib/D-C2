@@ -64,7 +64,19 @@ Accepted gosec findings (by design for a C2):
 These are documented rather than suppressed so a future review can re-evaluate
 them.
 
-## 4. Residual risks
+## 4. Supply chain
+
+- **Dependabot** opens weekly grouped PRs for Go modules and GitHub Actions.
+- **Dependency review** blocks PRs that introduce high-severity vulnerable
+  dependencies.
+- **Release provenance**: every tagged release attests its binaries and SBOM
+  with `actions/attest-build-provenance`; verify with
+  `gh attestation verify <file> --repo MarwanKhatib/D-C2`.
+- **Branch protection** on `main`: required CI checks, no force-push, no branch
+  deletion.
+- **SBOM**: CycloneDX file attached to every release.
+
+## 5. Residual risks
 
 - **Default is open.** With `DISCORD_ALLOWED_USERS` empty, any guild member who
   can post in the device channel can control the host. Set the allowlist in any
